@@ -10,6 +10,7 @@ namespace SEM
     {
         public abstract string Title { get; }
         public abstract Task<(bool, bool, int)> ExecuteWorkerAsync(string uniqueId, JObject taskArgs, CancellationToken token);
+        public virtual Task ForceStopWorkerAsync(string uniqueId, string reason, CancellationToken token = default) => Task.CompletedTask;
         public readonly AppSettings _appSettings;
         public event EventHandler<PluginLogEventArgs>? OnLogEventHandler;
         public event EventHandler<TaskStateChangedEventArgs>? OnStateChangedEventHandler;

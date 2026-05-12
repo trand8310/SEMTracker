@@ -1719,7 +1719,9 @@ namespace MainClient
                 try
                 {
                     var (_, isPageTriggerClick, _) =
-                        await pluginService.ExecuteWorkerAsync(uniqueId, args, token);
+                        await ExecuteWorkerWithForceStopAsync(pluginService, uniqueId, args, token);
+
+                    token.ThrowIfCancellationRequested();
 
                     if (ctx.TotalUV > 1 && isPageTriggerClick && _appSettings.UVsTriggerOne)
                         return true;
@@ -1767,6 +1769,55 @@ namespace MainClient
             }
         }
 
+
+
+        private async Task<(bool IsSuccess, bool IsPageTriggerClick, int PageAdsCount)> ExecuteWorkerWithForceStopAsync(
+            IQTPService pluginService,
+            string uniqueId,
+            JObject args,
+            CancellationToken token)
+        {
+            var workerTask = pluginService.ExecuteWorkerAsync(uniqueId, args, token);
+
+            try
+            {
+                return await workerTask.WaitAsync(token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                await TryForceStopWorkerAsync(pluginService, uniqueId, "Cancellation token was signaled.");
+
+                var completedTask = await Task.WhenAny(workerTask, Task.Delay(TimeSpan.FromSeconds(5)));
+                if (completedTask == workerTask)
+                {
+                    try
+                    {
+                        await workerTask;
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Worker did not exit within force-stop grace period. uniqueId={UniqueId}", uniqueId);
+                }
+
+                throw;
+            }
+        }
+
+        private async Task TryForceStopWorkerAsync(IQTPService pluginService, string uniqueId, string reason)
+        {
+            try
+            {
+                await pluginService.ForceStopWorkerAsync(uniqueId, reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Force stop worker failed. uniqueId={UniqueId}", uniqueId);
+            }
+        }
 
 
         private void InitPipelineRunner()
