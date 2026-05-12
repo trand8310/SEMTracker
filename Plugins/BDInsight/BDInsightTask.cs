@@ -1254,7 +1254,7 @@ namespace SEM.Plugins
                 await DecideJumpClickAsync(ctx, token);
                 if (ctx.JumpClick)
                 {
-                    await HumanScrollHelper.TouchPageLongScrollAsync(
+                    await HumanScrollHelper.TouchPageShortScrollAsync(
                      ctx.Page,
                      ctx.CdpSession!,
                      scrollCount: CommonHelper.RandomRange(2, 4),
