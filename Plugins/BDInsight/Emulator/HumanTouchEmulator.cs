@@ -12,7 +12,7 @@ namespace BDInsight.Emulator
     /// </summary>
     public static class HumanTouchEmulator
     {
-        public sealed class HumanTouchSwipeOptions
+        public class HumanTouchSwipeOptions
         {
             public int? DistancePx { get; set; }
             public int? StepCount { get; set; }

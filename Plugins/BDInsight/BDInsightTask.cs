@@ -1341,6 +1341,23 @@ namespace SEM.Plugins
         {
 
 
+            var trace = await SwipeEmulator.SwipeOnceHumanAsync(
+                page: ctx.Page!,
+                client: ctx.CdpSession!,
+                direction: ScrollDirection.Up);
+
+            if (trace != null)
+            {
+                SwipeTraceRenderer.DrawEachTraceGif(
+                    traces: new List<SwipeTrace>() { trace },
+                    outputDir: Path.Combine(AppContext.BaseDirectory, "swipe-traces"),
+                    width: ctx.Page!.ViewportSize!.Width,
+                    height: ctx.Page!.ViewportSize!.Height);
+
+         
+            }
+
+
 
             //await DecideJumpClickAsync(ctx, token);
             // var adsOk = await DetectAndUploadAdWordsAsync(ctx, entry.QueryWord, token);
