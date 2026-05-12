@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <Folder Include="Swiper\" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Libraries\SEM.Shared\SEM.Shared.csproj" />
+  </ItemGroup>
+
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+		<Exec Command="if not exist &quot;../../Build/publish/Plugins&quot; mkdir &quot;../../Build/publish/Plugins&quot;" />
+		<Exec Command="xcopy &quot;$(OutDir)$(ProjectName).dll&quot; &quot;../../Build/publish/Plugins&quot; /y" />
+	</Target>
+
+</Project>
