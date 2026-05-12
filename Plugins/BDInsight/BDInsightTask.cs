@@ -6,6 +6,7 @@ using Microsoft.Playwright;
 using Newtonsoft.Json.Linq;
 using SEM.Infrastructure;
 using SEM.Models;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -27,7 +28,8 @@ namespace SEM.Plugins
                 FileName = "BDInsight.dll",
             };
         }
-        public override string Title => "°Ù¶ÈËÑË÷";
+        private readonly ConcurrentDictionary<string, WorkerRunContext> _activeContexts = new();
+        public override string Title => "ç™¾åº¦æœç´¢";
         private readonly TaskStatsAggregator _aggregator;
         private readonly AdeHelper _adeHelper;
         private ChineseNameGenerator _nameGenerator;
@@ -59,7 +61,7 @@ namespace SEM.Plugins
         }
 
         /// <summary>
-        /// Ëæ»úÉú³ÉÒ»¸öÂú×ã°Ù·Ö±ÈµÄÊı×Ö
+        /// éšæœºç”Ÿæˆä¸€ä¸ªæ»¡è¶³ç™¾åˆ†æ¯”çš„æ•°å­—
         /// </summary>
         /// <param name="probability"></param>
         /// <returns></returns>
@@ -96,7 +98,7 @@ namespace SEM.Plugins
 
 
 
-            #region Ö¸ÎÆ²ÎÊıÉèÖÃ
+            #region æŒ‡çº¹å‚æ•°è®¾ç½®
 
             /*
             --platform="Android" 
@@ -415,37 +417,65 @@ namespace SEM.Plugins
         }
         private async Task ForceCleanupSessionAsync(WorkerRunContext ctx, string uniqueId)
         {
+            await ctx.CleanupLock.WaitAsync();
             try
             {
-                if (ctx.CdpManager != null)
-                    await ctx.CdpManager.DisposeAsync();
+                try
+                {
+                    if (ctx.CdpManager != null)
+                        await ctx.CdpManager.DisposeAsync();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (ctx.Context != null)
+                        await ctx.Context.CloseAsync();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    if (ctx.Browser != null && ctx.Browser.IsConnected)
+                        await ctx.Browser.CloseAsync();
+                }
+                catch
+                {
+                }
+
+                ctx.CdpManager = null;
+                ctx.Context = null;
+                ctx.Browser = null;
+                ctx.Page = null;
+            }
+            finally
+            {
+                ctx.CleanupLock.Release();
+            }
+        }
+
+        public override async Task ForceStopWorkerAsync(string uniqueId, string reason, CancellationToken token = default)
+        {
+            if (!_activeContexts.TryGetValue(uniqueId, out var ctx))
+                return;
+
+            LogWriteLine($"{this.Title}:ExecuteWorker:ForceStop: {reason}");
+
+            try
+            {
+                if (!ctx.Config.LinkedCts.IsCancellationRequested)
+                    await ctx.Config.LinkedCts.CancelAsync();
             }
             catch
             {
             }
 
-            try
-            {
-                if (ctx.Context != null)
-                    await ctx.Context.CloseAsync();
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                if (ctx.Browser != null && ctx.Browser.IsConnected)
-                    await ctx.Browser.CloseAsync();
-            }
-            catch
-            {
-            }
-
-            ctx.CdpManager = null;
-            ctx.Context = null;
-            ctx.Browser = null;
-            ctx.Page = null;
+            token.ThrowIfCancellationRequested();
+            await ForceCleanupSessionAsync(ctx, uniqueId);
         }
         private TaskConfig BuildTaskConfig(string uniqueId, JObject taskArgs, CancellationTokenSource linkedCts)
         {
@@ -507,7 +537,7 @@ namespace SEM.Plugins
             };
         }
         /// <summary>
-        /// ½âÎöSleepÖµ
+        /// è§£æSleepå€¼
         /// </summary>
         /// <param name="taskArgs"></param>
         /// <param name="defaultMinMs"></param>
@@ -678,7 +708,7 @@ namespace SEM.Plugins
                     if (!browser.IsConnected)
                         throw new InvalidOperationException("Browser is not connected after LaunchAsync.");
 
-                    // LaunchAsync ²»»á×Ô¶¯´´½¨ BrowserContext£¬ÕâÀïÖ÷¶¯´´½¨Ò»¸ö£¬±£³ÖºóĞøÁ÷³Ì²»±ä¡£
+                    // LaunchAsync ä¸ä¼šè‡ªåŠ¨åˆ›å»º BrowserContextï¼Œè¿™é‡Œä¸»åŠ¨åˆ›å»ºä¸€ä¸ªï¼Œä¿æŒåç»­æµç¨‹ä¸å˜ã€‚
 
                     BrowserNewContextOptions contextOptions = new()
                     {
@@ -724,7 +754,7 @@ namespace SEM.Plugins
 
             if (lastException != null)
             {
-                LogWriteLine($"LaunchBrowserAsync ×îÖÕÊ§°Ü: {lastException.Message}");
+                LogWriteLine($"LaunchBrowserAsync æœ€ç»ˆå¤±è´¥: {lastException.Message}");
             }
             return null;
         }
@@ -799,7 +829,7 @@ namespace SEM.Plugins
                     var reqUrl = e.Url ?? string.Empty;
                     var pageUrl = page.Url ?? string.Empty;
 
-                    // Í³Ò»¼ÇÂ¼×îºóÊ§°ÜÔ­Òò£¬±ãÓÚÅÅ²é
+                    // ç»Ÿä¸€è®°å½•æœ€åå¤±è´¥åŸå› ï¼Œä¾¿äºæ’æŸ¥
                     ctx.LastFailureReason = $"RequestFailed: {failure}, req={reqUrl}, page={pageUrl}";
 
                     bool isProxyFailureAnyRequest =
@@ -817,7 +847,7 @@ namespace SEM.Plugins
                         return;
 
                     ctx.ProxyFailed = true;
-                    ctx.ProxyFailedReason = $"ÇëÇóÊ§°Ü: {failure}, req={reqUrl}, page={pageUrl}";
+                    ctx.ProxyFailedReason = $"è¯·æ±‚å¤±è´¥: {failure}, req={reqUrl}, page={pageUrl}";
 
                     CancelLinkedContext(ctx, "RequestFailedProxy");
                 }
@@ -942,16 +972,16 @@ namespace SEM.Plugins
                 onRetry: (attempt, ex) =>
                 {
                     if (ex != null)
-                        LogWriteLine($"»ñÈ¡´ÊÌõÖØÊÔ:{attempt}, ex={ex.Message}");
+                        LogWriteLine($"è·å–è¯æ¡é‡è¯•:{attempt}, ex={ex.Message}");
                     else
-                        LogWriteLine($"»ñÈ¡´ÊÌõÖØÊÔ:{attempt}");
+                        LogWriteLine($"è·å–è¯æ¡é‡è¯•:{attempt}");
                 },
                 delayMsFactory: _ => CommonHelper.RandomRange(300, 500),
                 token: token);
 
             if (!retry.IsSuccess || string.IsNullOrWhiteSpace(retry.Value))
             {
-                LogWriteLine("ÎŞ·¨»ñÈ¡´ÊÌõ,Çë¼ì²é·şÎñÆ÷");
+                LogWriteLine("æ— æ³•è·å–è¯æ¡,è¯·æ£€æŸ¥æœåŠ¡å™¨");
                 await Task.Delay(TimeSpan.FromSeconds(30), token);
                 result.Success = false;
                 result.EndTask = true;
@@ -959,7 +989,7 @@ namespace SEM.Plugins
             }
 
             result.FirstPageUrl = result.FirstPageUrl.Replace("[QUERY]", retry.Value);
-            LogWriteLine($"{this.Title}:ËÑË÷´ÊÌõ{retry.Value}");
+            LogWriteLine($"{this.Title}:æœç´¢è¯æ¡{retry.Value}");
             return result;
         }
         private async Task<bool> NavigateToEntryAsync(WorkerRunContext ctx, string url, CancellationToken token)
@@ -975,11 +1005,11 @@ namespace SEM.Plugins
             }
             catch (TimeoutException ex)
             {
-                LogWriteLine($"¼ÓÔØ³¬Ê±:{ex.Message}");
+                LogWriteLine($"åŠ è½½è¶…æ—¶:{ex.Message}");
                 if (ctx.Page!.Url.Contains("sm.cn"))
                 {
                     var title = await ctx.Page!.TitleAsync();
-                    if (!title.StartsWith("¾«²ÊÈÈÎÄ") && !title.StartsWith("¾«²Ê"))
+                    if (!title.StartsWith("ç²¾å½©çƒ­æ–‡") && !title.StartsWith("ç²¾å½©"))
                         return false;
                 }
             }
@@ -1033,8 +1063,8 @@ namespace SEM.Plugins
 
                 var scrollStateBefore = await BDInsightHelper.GetPageScrollStateAsync(page);
 
-                // µ±Ç°²»ÄÜÔÙÏòÏÂ¹ö¶¯£¨ÊÖÊÆÏòÉÏ»¬£©
-                // ²»Á¢¼´½áÊø£¬¶øÊÇÔÚ durationMs Ê±¼ä´°¿ÚÄÚ¼ÌĞøµÈ´ıÒ»ÏÂÔÙ¼ì²é
+                // å½“å‰ä¸èƒ½å†å‘ä¸‹æ»šåŠ¨ï¼ˆæ‰‹åŠ¿å‘ä¸Šæ»‘ï¼‰
+                // ä¸ç«‹å³ç»“æŸï¼Œè€Œæ˜¯åœ¨ durationMs æ—¶é—´çª—å£å†…ç»§ç»­ç­‰å¾…ä¸€ä¸‹å†æ£€æŸ¥
                 if (!scrollStateBefore.CanScrollDown)
                 {
                     int remainMs = (int)Math.Max(0, deadline - Environment.TickCount64);
@@ -1063,7 +1093,7 @@ namespace SEM.Plugins
                 if (remainAfterScroll <= 0)
                     break;
 
-                // Ã»ÒÆ¶¯£¬ËµÃ÷Õâ´Î»¬¶¯ÎŞĞ§£»ÔÚÊ£ÓàÊ±¼äÄÚÉÔµÈºó¼ÌĞøÅĞ¶Ï
+                // æ²¡ç§»åŠ¨ï¼Œè¯´æ˜è¿™æ¬¡æ»‘åŠ¨æ— æ•ˆï¼›åœ¨å‰©ä½™æ—¶é—´å†…ç¨ç­‰åç»§ç»­åˆ¤æ–­
                 if (!moved)
                 {
                     int waitMs = Math.Min(CommonHelper.RandomRange(400, 800), remainAfterScroll);
@@ -1081,16 +1111,16 @@ namespace SEM.Plugins
             for (ctx.PvIndex = 1; ctx.PvIndex <= ctx.Config.TotalPV; ctx.PvIndex++)
             {
                 token.ThrowIfCancellationRequested();
-                LogWriteLine($"{this.Title}:pv£º{ctx.Config.TotalPV}/{ctx.PvIndex}");
+                LogWriteLine($"{this.Title}:pvï¼š{ctx.Config.TotalPV}/{ctx.PvIndex}");
                 await EnsureSinglePageAsync(ctx, token);
                 if (ctx.Page == null || ctx.Page.IsClosed)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: EnsureSinglePageºó PageÎª¿Õ»òÒÑ¹Ø±Õ");
+                    LogWriteLine($"{this.Title}:RunMainFlow: EnsureSinglePageå Pageä¸ºç©ºæˆ–å·²å…³é—­");
                     return false;
                 }
                 if (ctx.Browser == null || !ctx.Browser.IsConnected)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: EnsureSinglePageºó BrowserÎª¿Õ»òÒÑ¶Ï¿ª");
+                    LogWriteLine($"{this.Title}:RunMainFlow: EnsureSinglePageå Browserä¸ºç©ºæˆ–å·²æ–­å¼€");
                     return false;
                 }
                 var entry = await PrepareEntryAsync(ctx, token);
@@ -1120,7 +1150,7 @@ namespace SEM.Plugins
                     //entry.FirstPageUrl = "https://wm.m.sm.cn/s?from=wm100000&q=%E6%9C%89%E6%B2%A1%E6%9C%89%E7%90%86%E8%B4%A2%E7%9A%84%E8%BD%AF%E4%BB%B6";
                     //entry.FirstPageUrl = "https://wm.m.sm.cn/s?from=wm100000&q=9game";
                     //entry.FirstPageUrl = "https://b2b.baidu.com/m/aitf/s?q=24k%E9%95%80%E9%87%91%E5%9B%9E%E6%94%B6%E4%BB%B7%E6%A0%BC&fid=519938828&styl=b&sid=90311_811015_70000_70019&a_keywordid=75706230683&creativeId=50000002335958907&clickid=180377737532562088&uctrackid=czo0NzE4MTM4Mjk1NDk5NzQ4Mjg3O2M6NTAwMDAwMDIzMzU5NTg5MDc7ZDpkbXBfLTgzNjI1MDg1MzY1MjE5Mzg5OTg7cDp3bA==&flowfrom=shenma\r\n";
-                    //entry.FirstPageUrl = "https://so.m.sm.cn/s?q=öÏÓãÓÎÏ·&from=751111&safe=1&by=suggest&snum=6";
+                    //entry.FirstPageUrl = "https://so.m.sm.cn/s?q=é±¿é±¼æ¸¸æˆ&from=751111&safe=1&by=suggest&snum=6";
                     //entry.FirstPageUrl = "https://m.1688.com///_____tmd_____/punish?x5secdata=xf86Wdfu_WkBrkNgrkvOe0eXAoOUDbQAO89fQ0aNI2Blp-KnxXlfyiKRTCqq_PdAaQfhVWzwaFtQsA7CZOnO48Uzi6kKFOHkhYUf2D_VE8cBFh9Yd_8-6BEdES8McRTNkj4Wn-EAZKhDJdLzn2vscZ5iHAQvIACc7u_xc368YHkSnRCw-wrlFWCJSR_HAiSuGfCJaJWPFAbVreKS7QYOLRpcKuF4NRtd7ZedbLYY_FXN1_9sPges-2uYcZt1Y_huvuxUJairOPmv0b7yBdfBT-LiJ_vGq6R2sxwCmpVxYfeSzaM7R_pcLWKPn_859ZXPIFCoiq4ZlebxU0OREPlnCEQB2WkRbtQK_FIiwSsmFsLI9xLi4B1A-5_pFhMJeW4Ix-6SySYtLSYhO52qUmOut4ZIODQQkIxN4QlUghTVExMpVFz-sgbtD4lWHzBmA402fGV_FesadRCCCW1L0-avEkZwECU2U6cJv_FMqzUtb5WEoMjweXbCnMzJyDFX8aXTF70qfn6DBSen0rUkE77MzZ3C03GReDPJvCTIzSP7dE5g6kAwiFOliNJyqg9B-rLZgsrpryBTqOrT8yjQhbujLseX511AbcFl_KzR-oJyGR672iD5UnuVm1ctWJ-LpdTcVOLRaXFxHxzHjWLa3D-rGNlhOaEta4qMqERkPLqg5zZ9U__bx__m.1688.com%2f&x5step=1";
                     //entry.FirstPageUrl = "https://www.jqlive16.cc";
                     //entry.FirstPageUrl = "https://m.p4psearch.1688.com/page.html?spm=a2638t.27966843.0.0.67b6436csKR08G&q=%E8%A1%A3%E6%9C%8D%E5%A5%B3%E6%AC%BE&exp=wxReListExp:C;wxCpxGuessExp:B&hpageId=wx-list-v3";
@@ -1130,19 +1160,19 @@ namespace SEM.Plugins
                 }
                 if (string.IsNullOrWhiteSpace(entry.FirstPageUrl))
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: FirstPageUrlÎª¿Õ");
+                    LogWriteLine($"{this.Title}:RunMainFlow: FirstPageUrlä¸ºç©º");
                     continue;
                 }
 
                 if (ctx.Page == null || ctx.Page.IsClosed)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: NavigateÇ° PageÎª¿Õ»òÒÑ¹Ø±Õ");
+                    LogWriteLine($"{this.Title}:RunMainFlow: Navigateå‰ Pageä¸ºç©ºæˆ–å·²å…³é—­");
                     continue;
                 }
 
                 if (ctx.Browser == null || !ctx.Browser.IsConnected)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: NavigateÇ° BrowserÎª¿Õ»òÒÑ¶Ï¿ª");
+                    LogWriteLine($"{this.Title}:RunMainFlow: Navigateå‰ Browserä¸ºç©ºæˆ–å·²æ–­å¼€");
                     continue;
                 }
 
@@ -1157,7 +1187,7 @@ namespace SEM.Plugins
                 }
                 catch (PlaywrightException ex) when (IsClosedPlaywrightException(ex))
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: NavigateToEntryAsync Ò³ÃæÒÑ¹Ø±Õ: {ex.Message}");
+                    LogWriteLine($"{this.Title}:RunMainFlow: NavigateToEntryAsync é¡µé¢å·²å…³é—­: {ex.Message}");
                     continue;
                 }
 
@@ -1168,7 +1198,7 @@ namespace SEM.Plugins
 
                 if (ctx.Page == null || ctx.Page.IsClosed)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: µ¼º½ºó PageÎª¿Õ»òÒÑ¹Ø±Õ");
+                    LogWriteLine($"{this.Title}:RunMainFlow: å¯¼èˆªå Pageä¸ºç©ºæˆ–å·²å…³é—­");
                     continue;
                 }
 
@@ -1184,13 +1214,13 @@ namespace SEM.Plugins
 
                 if (ctx.Page == null || ctx.Page.IsClosed)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: ¹ö¶¯Ç° PageÎª¿Õ»òÒÑ¹Ø±Õ");
+                    LogWriteLine($"{this.Title}:RunMainFlow: æ»šåŠ¨å‰ Pageä¸ºç©ºæˆ–å·²å…³é—­");
                     continue;
                 }
 
                 if (ctx.Browser == null || !ctx.Browser.IsConnected)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: ¹ö¶¯Ç° BrowserÒÑ¶Ï¿ª");
+                    LogWriteLine($"{this.Title}:RunMainFlow: æ»šåŠ¨å‰ Browserå·²æ–­å¼€");
                     continue;
                 }
 
@@ -1212,13 +1242,13 @@ namespace SEM.Plugins
 
                 if (ctx.Page == null || ctx.Page.IsClosed)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: DecideJumpClickÇ° PageÎª¿Õ»òÒÑ¹Ø±Õ");
+                    LogWriteLine($"{this.Title}:RunMainFlow: DecideJumpClickå‰ Pageä¸ºç©ºæˆ–å·²å…³é—­");
                     continue;
                 }
 
                 if (ctx.Browser == null || !ctx.Browser.IsConnected)
                 {
-                    LogWriteLine($"{this.Title}:RunMainFlow: DecideJumpClickÇ° BrowserÒÑ¶Ï¿ª");
+                    LogWriteLine($"{this.Title}:RunMainFlow: DecideJumpClickå‰ Browserå·²æ–­å¼€");
                     continue;
                 }
                 await DecideJumpClickAsync(ctx, token);
@@ -1288,11 +1318,11 @@ namespace SEM.Plugins
                         Frame = frame
                     });
 
-                    Console.WriteLine($"ÕÒµ½ iframe£º{src}");
+                    Console.WriteLine($"æ‰¾åˆ° iframeï¼š{src}");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"´¦Àí iframe Ê§°Ü£º{ex.Message}");
+                    Console.WriteLine($"å¤„ç† iframe å¤±è´¥ï¼š{ex.Message}");
                 }
             }
 
@@ -1307,7 +1337,7 @@ namespace SEM.Plugins
         #region Test Branch
 
         /// <summary>
-        /// ²âÊÔ·½·¨
+        /// æµ‹è¯•æ–¹æ³•
         /// </summary>
         /// <param name="ctx"></param>
         /// <param name="entry"></param>
@@ -1337,7 +1367,7 @@ namespace SEM.Plugins
             //{
             //    Has = ctx.Page!.Locator("span").Filter(new()
             //    {
-            //        HasTextString = "ÈËÔÚ¿´"
+            //        HasTextString = "äººåœ¨çœ‹"
             //    })
 
             //});
@@ -1391,7 +1421,7 @@ namespace SEM.Plugins
         #region Ads / JumpClick
 
         /// <summary>
-        /// ¼ì²âÒ³Ãæ¹ã±ê¼Ç
+        /// æ£€æµ‹é¡µé¢å¹¿æ ‡è®°
         /// </summary>
         /// <param name="ctx"></param>
         /// <param name="q"></param>
@@ -1403,13 +1433,13 @@ namespace SEM.Plugins
 
             if (ctx.Page == null || ctx.Page.IsClosed)
             {
-                LogWriteLine("¹ã¸æ¼ì²âÖÕÖ¹: PageÎª¿Õ»òÒÑ¹Ø±Õ");
+                LogWriteLine("å¹¿å‘Šæ£€æµ‹ç»ˆæ­¢: Pageä¸ºç©ºæˆ–å·²å…³é—­");
                 return false;
             }
 
             if (ctx.Browser == null || !ctx.Browser.IsConnected)
             {
-                LogWriteLine("¹ã¸æ¼ì²âÖÕÖ¹: BrowserÎª¿Õ»òÒÑ¶Ï¿ª");
+                LogWriteLine("å¹¿å‘Šæ£€æµ‹ç»ˆæ­¢: Browserä¸ºç©ºæˆ–å·²æ–­å¼€");
                 return false;
             }
 
@@ -1419,7 +1449,7 @@ namespace SEM.Plugins
                 ctx.PageAdsCount = baiduAds.Count();
                 if (ctx.PageAdsCount <= 0)
                 {
-                    LogWriteLine("Ã»ÓĞ¹ã¸æ±ê¼Ç,ÖØÊÔ");
+                    LogWriteLine("æ²¡æœ‰å¹¿å‘Šæ ‡è®°,é‡è¯•");
                     return false;
                 }
 
@@ -1431,14 +1461,14 @@ namespace SEM.Plugins
             }
             catch (PlaywrightException ex) when (IsClosedPlaywrightException(ex))
             {
-                LogWriteLine($"¹ã¸æ¼ì²âÊ§°Ü: Ò³Ãæ/ÉÏÏÂÎÄ/ä¯ÀÀÆ÷ÒÑ¹Ø±Õ, {ex.Message}");
+                LogWriteLine($"å¹¿å‘Šæ£€æµ‹å¤±è´¥: é¡µé¢/ä¸Šä¸‹æ–‡/æµè§ˆå™¨å·²å…³é—­, {ex.Message}");
                 return false;
             }
         }
 
 
         /// <summary>
-        /// ´¦Àíµã»÷±ÈÀı
+        /// å¤„ç†ç‚¹å‡»æ¯”ä¾‹
         /// </summary>
         /// <param name="ctx"></param>
         /// <param name="token"></param>
@@ -1456,12 +1486,12 @@ namespace SEM.Plugins
             }
 
             var ctr = await _aggregator.GetClickRatioAsync(ctx.Config.TaskId, clickRate);
-            LogWriteLine($"µã»÷±ÈÂÊ:{(ctr * 100):N2}%");
+            LogWriteLine($"ç‚¹å‡»æ¯”ç‡:{(ctr * 100):N2}%");
             ctx.JumpClick = await _aggregator.CanClickthroughAsync(ctx.Config.TaskId, clickRate);
         }
 
         /// <summary>
-        /// ´¥·¢¹ã¸æ
+        /// è§¦å‘å¹¿å‘Š
         /// </summary>
         /// <param name="ctx"></param>
         /// <param name="token"></param>
@@ -1488,9 +1518,9 @@ namespace SEM.Plugins
                 await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
                 var box = await sponsored.IframeElement.BoundingBoxAsync();
                 if (box != null)
-                    LogWriteLine($"´¥·¢¹ã¸æÎ»:{sponsored.Src}:({box.X},{box.Y},{box.Width},{box.Height})");
+                    LogWriteLine($"è§¦å‘å¹¿å‘Šä½:{sponsored.Src}:({box.X},{box.Y},{box.Width},{box.Height})");
                 else
-                    LogWriteLine($"´¥·¢¹ã¸æÎ»:{sponsored.Src}");
+                    LogWriteLine($"è§¦å‘å¹¿å‘Šä½:{sponsored.Src}");
                 var click = await ClickAndDetectNavigationAsync(ctx, sponsored.IframeElement, token);
                 if (!click.Attempted)
                     continue;
@@ -1620,7 +1650,7 @@ namespace SEM.Plugins
             var metrics = _aggregator.GetLocalMetrics(ctx.Config.TaskId, "dsp_p4psearch", "dsp_p4psearch_click");
 
             if (metrics["dsp_p4psearch"] > 0)
-                LogWriteLine($"1688Ñ¯¼Û±ÈÂÊ:{(metrics["dsp_p4psearch_click"] / (double)metrics["dsp_p4psearch"] * 100):N2}%");
+                LogWriteLine($"1688è¯¢ä»·æ¯”ç‡:{(metrics["dsp_p4psearch_click"] / (double)metrics["dsp_p4psearch"] * 100):N2}%");
 
             bool canClick = _appSettings.p4psearchRate == 100
                 || metrics["dsp_p4psearch_click"] == 0
@@ -1696,7 +1726,7 @@ namespace SEM.Plugins
                             double linkLeft = box.X;
                             double linkRight = box.X + box.Width;
 
-                            // ÅĞ¶ÏÊÇ·ñºÍÈİÆ÷¿ÉÊÓÇøÓòÓĞ½»¼¯
+                            // åˆ¤æ–­æ˜¯å¦å’Œå®¹å™¨å¯è§†åŒºåŸŸæœ‰äº¤é›†
                             bool verticallyVisible = linkBottom > containerTop && linkTop < containerBottom;
                             bool horizontallyVisible = linkRight > containerLeft && linkLeft < containerRight;
 
@@ -1787,7 +1817,7 @@ namespace SEM.Plugins
                 //https://ada.baidu.com/site
                 await Task.Delay(CommonHelper.RandomRange(3000, 5000));
                 var info = ctx.Page!.GetByText(
-                    new Regex(@"·¨ÂÉ×ÉÑ¯|ÂÉÊ¦|¿Í·ş")
+                    new Regex(@"æ³•å¾‹å’¨è¯¢|å¾‹å¸ˆ|å®¢æœ")
                 );
                 var info_count = await info.CountAsync();
                 if (info_count > 0)
@@ -1813,7 +1843,7 @@ namespace SEM.Plugins
                         }
                         else
                         {
-                            await input_area.PressSequentiallyAsync("ÄãºÃ,ÓĞÊÂ×ÉÑ¯");
+                            await input_area.PressSequentiallyAsync("ä½ å¥½,æœ‰äº‹å’¨è¯¢");
                         }
                     }
                     var send_btn = ctx.Page!.Locator(".input-area .send-btn");
@@ -1931,7 +1961,7 @@ namespace SEM.Plugins
                     try
                     {
                         var info = ctx.Page!.GetByText(
-                            new Regex(@"·¨ÂÉ×ÉÑ¯|ÂÉÊ¦|¿Í·ş")
+                            new Regex(@"æ³•å¾‹å’¨è¯¢|å¾‹å¸ˆ|å®¢æœ")
                         );
                         var info_count = await info.CountAsync();
                         if (info_count > 0)
@@ -1956,7 +1986,7 @@ namespace SEM.Plugins
                                 }
                                 else
                                 {
-                                    await input_area.PressSequentiallyAsync("ÄãºÃ,ÓĞÊÂ×ÉÑ¯");
+                                    await input_area.PressSequentiallyAsync("ä½ å¥½,æœ‰äº‹å’¨è¯¢");
                                 }
                             }
                             var send_btn = ctx.Page!.Locator(".input-area .send-btn");
@@ -1978,7 +2008,7 @@ namespace SEM.Plugins
                 };
 
                 var locator_list = ctx.Page!.GetByText(
-                    new Regex(@"²é¿´¸ü¶à")
+                    new Regex(@"æŸ¥çœ‹æ›´å¤š")
                 );
                 var locator_count = await locator_list.CountAsync();
                 if (locator_count > 0)
@@ -2011,7 +2041,7 @@ namespace SEM.Plugins
                     {
                         try
                         {
-                            var loc = frame.GetByText(new Regex(@"²é¿´¸ü¶à"));
+                            var loc = frame.GetByText(new Regex(@"æŸ¥çœ‹æ›´å¤š"));
                             var count = await loc.CountAsync();
                             if (count > 0)
                             {
@@ -2021,7 +2051,7 @@ namespace SEM.Plugins
                         }
                         catch
                         {
-                            // Ä³Ğ© frame ¿ÉÄÜÁÙÊ±²»¿ÉÓÃ£¬Ìø¹ı
+                            // æŸäº› frame å¯èƒ½ä¸´æ—¶ä¸å¯ç”¨ï¼Œè·³è¿‡
                         }
                     }
 
@@ -2094,8 +2124,8 @@ namespace SEM.Plugins
         private async Task<bool> HandleJdActivePageAsync(WorkerRunContext ctx, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            var his1 = ctx.Page!.Locator("*:has-text('Ò½Ôº')");
-            var his2 = ctx.Page.Locator("*:has-text('ÎÊÕï')");
+            var his1 = ctx.Page!.Locator("*:has-text('åŒ»é™¢')");
+            var his2 = ctx.Page.Locator("*:has-text('é—®è¯Š')");
             bool medical = await his1.CountAsync() > 0 || await his2.CountAsync() > 0;
             ClickResult? result = null;
             token.ThrowIfCancellationRequested();
@@ -2111,8 +2141,8 @@ namespace SEM.Plugins
             await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
             if (medical)
             {
-                //|Í¼ÎÄ.*Æğ|µç»°.*Æğ
-                var locator_list = ctx.Page.Locator("text=/Ê£.*¸öÃû¶î/").Filter(new() { Visible = true });
+                //|å›¾æ–‡.*èµ·|ç”µè¯.*èµ·
+                var locator_list = ctx.Page.Locator("text=/å‰©.*ä¸ªåé¢/").Filter(new() { Visible = true });
                 var locator_count = await locator_list.CountAsync();
                 if (locator_count > 0)
                 {
@@ -2239,7 +2269,7 @@ namespace SEM.Plugins
             }
             if (ctx.Page!.Url.StartsWith("https://h5.m.taobao.com"))
             {
-                if (await ctx.Page.GetByText("»ñÈ¡ÑéÖ¤Âë").CountAsync() > 0)
+                if (await ctx.Page.GetByText("è·å–éªŒè¯ç ").CountAsync() > 0)
                 {
                     await Task.Delay(CommonHelper.RandomRange(2000, 3000), token);
                     return StepFlow.EndTask;
@@ -2253,7 +2283,7 @@ namespace SEM.Plugins
             }
 
 
-            LogWriteLine("ÑÓÊ±Í£Áô");
+            LogWriteLine("å»¶æ—¶åœç•™");
             PageScrollDirection direction = PageScrollDirection.Up;
             var loop = 0;
             while (true)
@@ -2263,7 +2293,7 @@ namespace SEM.Plugins
 
                 try
                 {
-                    LogWriteLine("»¬¶¯²Ù×÷");
+                    LogWriteLine("æ»‘åŠ¨æ“ä½œ");
 
                     await HumanScrollHelper.TouchPageLongScrollAsync(
                     ctx.Page!,
@@ -2294,7 +2324,7 @@ namespace SEM.Plugins
                 }
             }
 
-            LogWriteLine("¶¯×÷Íê³É");
+            LogWriteLine("åŠ¨ä½œå®Œæˆ");
             return StepFlow.EndTask;
         }
 
@@ -2314,16 +2344,16 @@ namespace SEM.Plugins
                 direction: PageScrollDirection.Up,
                 cancellationToken: token);
                 await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
-                var locator_detail = ctx.Page!.Locator("*:text-is('È«²¿ÉÌÆ·')");
+                var locator_detail = ctx.Page!.Locator("*:text-is('å…¨éƒ¨å•†å“')");
                 var locator_detail_count = await locator_detail.CountAsync();
                 if (locator_detail_count == 0)
                 {
-                    locator_detail = ctx.Page.Locator("*:text-is('½øµê¿´¿´')");
+                    locator_detail = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹çœ‹')");
                     locator_detail_count = await locator_detail.CountAsync();
                 }
                 if (locator_detail_count == 0)
                 {
-                    locator_detail = ctx.Page.Locator("*:text-is('½øµê¿´³§')");
+                    locator_detail = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹å‚')");
                     locator_detail_count = await locator_detail.CountAsync();
                 }
                 if (locator_detail_count == 0)
@@ -2441,16 +2471,16 @@ namespace SEM.Plugins
             //        direction: PageScrollDirection.Up,
             //        cancellationToken: token);
             //        await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
-            //        var locator = ctx.Page.Locator("*:text-is('È«²¿ÉÌÆ·')");
+            //        var locator = ctx.Page.Locator("*:text-is('å…¨éƒ¨å•†å“')");
             //        var locator_count = await locator.CountAsync();
             //        if (locator_count == 0)
             //        {
-            //            locator = ctx.Page.Locator("*:text-is('½øµê¿´¿´')");
+            //            locator = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹çœ‹')");
             //            locator_count = await locator.CountAsync();
             //        }
             //        if (locator_count == 0)
             //        {
-            //            locator = ctx.Page.Locator("*:text-is('½øµê¿´³§')");
+            //            locator = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹å‚')");
             //            locator_count = await locator.CountAsync();
             //        }
             //        if (locator_count == 0)
@@ -2545,16 +2575,16 @@ namespace SEM.Plugins
             //        direction: PageScrollDirection.Up,
             //        cancellationToken: token);
             //        await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
-            //        var locator = ctx.Page.Locator("*:text-is('È«²¿ÉÌÆ·')");
+            //        var locator = ctx.Page.Locator("*:text-is('å…¨éƒ¨å•†å“')");
             //        var locator_count = await locator.CountAsync();
             //        if (locator_count == 0)
             //        {
-            //            locator = ctx.Page.Locator("*:text-is('½øµê¿´¿´')");
+            //            locator = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹çœ‹')");
             //            locator_count = await locator.CountAsync();
             //        }
             //        if (locator_count == 0)
             //        {
-            //            locator = ctx.Page.Locator("*:text-is('½øµê¿´³§')");
+            //            locator = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹å‚')");
             //            locator_count = await locator.CountAsync();
             //        }
             //        if (locator_count == 0)
@@ -2641,7 +2671,7 @@ namespace SEM.Plugins
             {
                 var metrics = _aggregator.GetLocalMetrics(ctx.Config.TaskId, "dsp_rfq1688", "dsp_rfq1688_click");
                 if (metrics["dsp_rfq1688"] > 0)
-                    LogWriteLine($"1688Ñ¯¼Û±ÈÂÊ:{(metrics["dsp_rfq1688_click"] / (double)metrics["dsp_rfq1688"] * 100):N2}%");
+                    LogWriteLine($"1688è¯¢ä»·æ¯”ç‡:{(metrics["dsp_rfq1688_click"] / (double)metrics["dsp_rfq1688"] * 100):N2}%");
 
                 bool canClick = _appSettings.Rfq1688 && (_appSettings.Rfq1688Rate == 100
                     || metrics["dsp_rfq1688_click"] == 0
@@ -2660,7 +2690,7 @@ namespace SEM.Plugins
                 {
                     var queryBtn = ctx.Page.Locator(".queryBtnTitleTop");
                     if (await queryBtn.CountAsync() == 0)
-                        queryBtn = ctx.Page.GetByText("Á¢¼´Ñ¯¼Û");
+                        queryBtn = ctx.Page.GetByText("ç«‹å³è¯¢ä»·");
 
                     if (await queryBtn.CountAsync() > 0)
                     {
@@ -2702,8 +2732,8 @@ namespace SEM.Plugins
                 {
                     var texts = new[]
                     {
-                        "ÓĞÃ»ÓĞÏÖ»õ","¼Û¸ñ»¹ÓĞ¿Õ¼äÂğ","Ê²Ã´Ê±¼ä·¢»õ","ÓĞ»î¶¯Âğ","¹¤³§ÔÚÄÄÀï","ÊµÎïÍ¼ÊÇ·ñÒ»ÖÂ",
-                        "ÄÜ·ñÌá¹©ÖÊ¼ì","¿ÉÒÔ¼ÄÑùÆ·¸øÎÒÂğ","Åú·¢¼ÛÊÇ¶àÉÙ","¿ÉÒÔ¿ª·¢Æ±°É","Õâ¿îÖ§³ÖÒ»¼ş´ú·¢Âğ","°üÓÊÂğ"
+                        "æœ‰æ²¡æœ‰ç°è´§","ä»·æ ¼è¿˜æœ‰ç©ºé—´å—","ä»€ä¹ˆæ—¶é—´å‘è´§","æœ‰æ´»åŠ¨å—","å·¥å‚åœ¨å“ªé‡Œ","å®ç‰©å›¾æ˜¯å¦ä¸€è‡´",
+                        "èƒ½å¦æä¾›è´¨æ£€","å¯ä»¥å¯„æ ·å“ç»™æˆ‘å—","æ‰¹å‘ä»·æ˜¯å¤šå°‘","å¯ä»¥å¼€å‘ç¥¨å§","è¿™æ¬¾æ”¯æŒä¸€ä»¶ä»£å‘å—","åŒ…é‚®å—"
                     };
 
                     el = ctx.Page.Locator("textarea#new_od_xst_msg_input_val_new_message,textarea#od_xst_msg_input_val_new_message");
@@ -2724,7 +2754,7 @@ namespace SEM.Plugins
                         await CDPHelper.MouseClickAsync(ctx.Page, ctx.CdpSession!, el.First, timeout: 2000);
                         await Task.Delay(CommonHelper.RandomRange(2000, 3000), token);
 
-                        var sms = ctx.Page.GetByText("»ñÈ¡ÑéÖ¤Âë");
+                        var sms = ctx.Page.GetByText("è·å–éªŒè¯ç ");
                         if (await sms.CountAsync() > 0)
                         {
                             var close1 = ctx.Page.Locator(".successTipNew_close_new,.newSuccessTipNew_close_new");
@@ -2754,16 +2784,16 @@ namespace SEM.Plugins
                 await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
 
 
-                var locator = ctx.Page.Locator("*:text-is('½øµê¿´¿´')");
+                var locator = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹çœ‹')");
                 var locator_count = await locator.CountAsync();
                 if (locator_count == 0)
                 {
-                    locator = ctx.Page.Locator("*:text-is('½øµê¿´³§')");
+                    locator = ctx.Page.Locator("*:text-is('è¿›åº—çœ‹å‚')");
                     locator_count = await locator.CountAsync();
                 }
                 if (locator_count == 0)
                 {
-                    locator = ctx.Page.Locator("*:text-is('È«²¿ÉÌÆ·')");
+                    locator = ctx.Page.Locator("*:text-is('å…¨éƒ¨å•†å“')");
                     locator_count = await locator.CountAsync();
                 }
                 if (locator_count == 0)
@@ -2878,7 +2908,7 @@ namespace SEM.Plugins
 
                 var surname = _nameGenerator.GetDisplayName(phone);
 
-                var inputName = ctx.Page.Locator("input[placeholder='ÇëÊäÈëÄúµÄ³Æºô']").First;
+                var inputName = ctx.Page.Locator("input[placeholder='è¯·è¾“å…¥æ‚¨çš„ç§°å‘¼']").First;
                 if (await inputName.CountAsync() > 0)
                 {
                     await inputName.FillAsync("");
@@ -2887,7 +2917,7 @@ namespace SEM.Plugins
 
                 await Task.Delay(CommonHelper.RandomRange(300, 500), token);
 
-                var inputPhone = ctx.Page.Locator("input[placeholder='ÇëÊäÈëÊÖ»úºÅ']").First;
+                var inputPhone = ctx.Page.Locator("input[placeholder='è¯·è¾“å…¥æ‰‹æœºå·']").First;
                 if (await inputPhone.CountAsync() > 0)
                 {
                     await inputPhone.FillAsync("");
@@ -2898,7 +2928,7 @@ namespace SEM.Plugins
                 if (await radio.CountAsync() > 0)
                     await CDPHelper.MouseClickAsync(ctx.Page, ctx.CdpSession!, radio.First);
 
-                var btnSubmit = ctx.Page.Locator("div:has-text('Ãâ·ÑÁìÆ±')").First;
+                var btnSubmit = ctx.Page.Locator("div:has-text('å…è´¹é¢†ç¥¨')").First;
                 if (await btnSubmit.CountAsync() > 0)
                 {
                     await CDPHelper.MouseClickAsync(ctx.Page, ctx.CdpSession!, btnSubmit);
@@ -2924,9 +2954,9 @@ namespace SEM.Plugins
                 await Task.Delay(CommonHelper.RandomRange(2000, 3000), token);
                 var cookieBtn = await BDInsightHelper.WaitVisibleLocatorAsync(new[]
                 {
-                    ctx.Page.GetByText("Í¬ÒâÈ«²¿µÚÈı·½Cookie", new() { Exact = true }),
-                    ctx.Page.GetByRole(AriaRole.Button, new() { Name = "Í¬ÒâÈ«²¿µÚÈı·½Cookie" }),
-                    ctx.Page.Locator("button").Filter(new() { HasTextString = "Í¬ÒâÈ«²¿µÚÈı·½Cookie" }),
+                    ctx.Page.GetByText("åŒæ„å…¨éƒ¨ç¬¬ä¸‰æ–¹Cookie", new() { Exact = true }),
+                    ctx.Page.GetByRole(AriaRole.Button, new() { Name = "åŒæ„å…¨éƒ¨ç¬¬ä¸‰æ–¹Cookie" }),
+                    ctx.Page.Locator("button").Filter(new() { HasTextString = "åŒæ„å…¨éƒ¨ç¬¬ä¸‰æ–¹Cookie" }),
                 }, token, timeoutMs: 10000);
                 if (cookieBtn != null)
                 {
@@ -3038,7 +3068,7 @@ namespace SEM.Plugins
                   ).Filter(new()
                   {
                       HasTextRegex = new Regex(
-                          @"Í¬Òâ|½ÓÊÜ|ÔÊĞí|ÎÒÍ¬Òâ|ÎÒ½ÓÊÜ|ÔÊĞíÈ«²¿|È«²¿½ÓÊÜ|È«²¿Í¬Òâ|È·ÈÏ|¼ÌĞø|ÖªµÀÁË|Agree|Accept|Allow|Accept All|Allow All|I Agree|I Accept|Consent|Got it|Continue|Accept Cookies|Allow Cookies",
+                          @"åŒæ„|æ¥å—|å…è®¸|æˆ‘åŒæ„|æˆ‘æ¥å—|å…è®¸å…¨éƒ¨|å…¨éƒ¨æ¥å—|å…¨éƒ¨åŒæ„|ç¡®è®¤|ç»§ç»­|çŸ¥é“äº†|Agree|Accept|Allow|Accept All|Allow All|I Agree|I Accept|Consent|Got it|Continue|Accept Cookies|Allow Cookies",
                           RegexOptions.IgnoreCase
                       )
                   }).First;
@@ -3193,7 +3223,7 @@ namespace SEM.Plugins
         #endregion
 
         /// <summary>
-        /// ´¦ÀíÒ³ÃæÔªËØ
+        /// å¤„ç†é¡µé¢å…ƒç´ 
         /// </summary>
         /// <param name="page"></param>
         /// <param name="cdpSession"></param>
@@ -3245,12 +3275,12 @@ namespace SEM.Plugins
                     }
                     catch (PlaywrightException ex) when (IsClosedPlaywrightException(ex))
                     {
-                        LogWriteLine($"{this.Title}:ProcessingPageElementTask Ò³ÃæÒÑ¹Ø±Õ: {ex.Message}");
+                        LogWriteLine($"{this.Title}:ProcessingPageElementTask é¡µé¢å·²å…³é—­: {ex.Message}");
                         break;
                     }
                     catch (Exception ex)
                     {
-                        LogWriteLine($"{this.Title}:ProcessingPageElementTaskÒì³£: {ex.Message}");
+                        LogWriteLine($"{this.Title}:ProcessingPageElementTaskå¼‚å¸¸: {ex.Message}");
                         break;
                     }
                 }
@@ -3258,7 +3288,7 @@ namespace SEM.Plugins
         }
 
         /// <summary>
-        /// Çå³ı1688APPÏÂÔØ
+        /// æ¸…é™¤1688APPä¸‹è½½
         /// </summary>
         /// <param name="page"></param>
         /// <param name="cdpSession"></param>
@@ -3284,7 +3314,7 @@ namespace SEM.Plugins
         }
 
         /// <summary>
-        /// Çå³ı1688Ñ¯¼Û¶Ô»°¿ò
+        /// æ¸…é™¤1688è¯¢ä»·å¯¹è¯æ¡†
         /// </summary>
         /// <param name="page"></param>
         /// <param name="cdpSession"></param>
@@ -3310,7 +3340,7 @@ namespace SEM.Plugins
         }
 
         /// <summary>
-        /// µã»÷½Úµã²¢¼ì²âÒ³ÃæÊÇ·ñÌø×ª
+        /// ç‚¹å‡»èŠ‚ç‚¹å¹¶æ£€æµ‹é¡µé¢æ˜¯å¦è·³è½¬
         /// </summary>
         /// <param name="ctx"></param>
         /// <param name="target"></param>
@@ -3452,6 +3482,7 @@ namespace SEM.Plugins
                         new DefaultLandingPageStrategy(this),
                     })
                 };
+                _activeContexts[uniqueId] = ctx;
 
 
 
@@ -3465,11 +3496,11 @@ namespace SEM.Plugins
                 {
                     if (ctx.ProxyFailed)
                     {
-                        LogWriteLine($"{this.Title}:ExecuteWorker:ä¯ÀÀÆ÷/CDP½¨Á¢Ê§°Ü£¬ÒÉËÆ´úÀíÒì³£: {ctx.ProxyFailedReason}");
+                        LogWriteLine($"{this.Title}:ExecuteWorker:æµè§ˆå™¨/CDPå»ºç«‹å¤±è´¥ï¼Œç–‘ä¼¼ä»£ç†å¼‚å¸¸: {ctx.ProxyFailedReason}");
                     }
                     else
                     {
-                        LogWriteLine($"{this.Title}:ExecuteWorker:ä¯ÀÀÆ÷Æô¶¯»òCDPÁ¬½ÓÊ§°Ü");
+                        LogWriteLine($"{this.Title}:ExecuteWorker:æµè§ˆå™¨å¯åŠ¨æˆ–CDPè¿æ¥å¤±è´¥");
                     }
 
                     return (false, false, 0);
@@ -3479,14 +3510,14 @@ namespace SEM.Plugins
                 {
                     ctx.ProxyFailed = true;
                     ctx.ProxyFailedReason ??= "Browser.IsConnected == false";
-                    LogWriteLine($"{this.Title}:ExecuteWorker:BrowserÎ´Á¬½Ó: {ctx.ProxyFailedReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:Browseræœªè¿æ¥: {ctx.ProxyFailedReason}");
                     return (false, false, 0);
                 }
                 if (ctx.Browser.Contexts == null || ctx.Browser.Contexts.Count == 0)
                 {
                     ctx.ProxyFailed = true;
                     ctx.ProxyFailedReason ??= "Browser.Contexts.Count == 0";
-                    LogWriteLine($"{this.Title}:ExecuteWorker:BrowserÎŞ¿ÉÓÃContext: {ctx.ProxyFailedReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:Browseræ— å¯ç”¨Context: {ctx.ProxyFailedReason}");
                     return (false, false, 0);
                 }
                 ctx.CdpManager = new CDPSessionManager(ctx.Context!);
@@ -3494,12 +3525,12 @@ namespace SEM.Plugins
                 await AttachLifecycleEventsAsync(ctx, linkedCts.Token);
                 if (ctx.ProxyFailed)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:³õÊ¼»¯½×¶ÎÒÑÅĞ¶¨´úÀíÒì³£: {ctx.ProxyFailedReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:åˆå§‹åŒ–é˜¶æ®µå·²åˆ¤å®šä»£ç†å¼‚å¸¸: {ctx.ProxyFailedReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
                 if (ctx.PageCrashed)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:³õÊ¼»¯½×¶ÎÒ³Ãæ±ÀÀ£: {ctx.LastFailureReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:åˆå§‹åŒ–é˜¶æ®µé¡µé¢å´©æºƒ: {ctx.LastFailureReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 
@@ -3508,15 +3539,15 @@ namespace SEM.Plugins
                 {
                     if (ctx.ProxyFailed)
                     {
-                        LogWriteLine($"{this.Title}:ExecuteWorker:ÈÎÎñÊ§°Ü£¬´úÀíÒì³£: {ctx.ProxyFailedReason}");
+                        LogWriteLine($"{this.Title}:ExecuteWorker:ä»»åŠ¡å¤±è´¥ï¼Œä»£ç†å¼‚å¸¸: {ctx.ProxyFailedReason}");
                     }
                     else if (ctx.PageCrashed)
                     {
-                        LogWriteLine($"{this.Title}:ExecuteWorker:ÈÎÎñÊ§°Ü£¬Ò³Ãæ±ÀÀ£: {ctx.LastFailureReason}");
+                        LogWriteLine($"{this.Title}:ExecuteWorker:ä»»åŠ¡å¤±è´¥ï¼Œé¡µé¢å´©æºƒ: {ctx.LastFailureReason}");
                     }
                     else if (!string.IsNullOrWhiteSpace(ctx.LastFailureReason))
                     {
-                        LogWriteLine($"{this.Title}:ExecuteWorker:ÈÎÎñÊ§°Ü: {ctx.LastFailureReason}");
+                        LogWriteLine($"{this.Title}:ExecuteWorker:ä»»åŠ¡å¤±è´¥: {ctx.LastFailureReason}");
                     }
                 }
                 return (ok, ctx.PageTriggerClick, ctx.PageAdsCount);
@@ -3525,13 +3556,13 @@ namespace SEM.Plugins
             {
                 if (ctx?.ProxyFailed == true)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:Canceled(´úÀíÒì³£): {ctx.ProxyFailedReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:Canceled(ä»£ç†å¼‚å¸¸): {ctx.ProxyFailedReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 
                 if (ctx?.PageCrashed == true)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:Canceled(Ò³Ãæ±ÀÀ£): {ctx.LastFailureReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:Canceled(é¡µé¢å´©æºƒ): {ctx.LastFailureReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 
@@ -3551,13 +3582,13 @@ namespace SEM.Plugins
 
                 if (ctx?.ProxyFailed == true)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:PlaywrightException(´úÀíÒì³£): {ctx.ProxyFailedReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:PlaywrightException(ä»£ç†å¼‚å¸¸): {ctx.ProxyFailedReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 
                 if (ctx?.PageCrashed == true)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:PlaywrightException(Ò³Ãæ±ÀÀ£): {ctx.LastFailureReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:PlaywrightException(é¡µé¢å´©æºƒ): {ctx.LastFailureReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 
@@ -3571,13 +3602,14 @@ namespace SEM.Plugins
 
                 if (ctx?.ProxyFailed == true)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:Òì³£(´úÀíÒì³£): {ctx.ProxyFailedReason}");
+                    LogWriteLine($"{this.Title}:ExecuteWorker:å¼‚å¸¸(ä»£ç†å¼‚å¸¸): {ctx.ProxyFailedReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 
                 if (ctx?.PageCrashed == true)
                 {
-                    LogWriteLine($"{this.Title}:ExecuteWorker:Òì³£(Ò³Ãæ±ÀÀ£): {ctx.LastFailureReason}");
+                    _activeContexts.TryRemove(uniqueId, out _);
+                    LogWriteLine($"{this.Title}:ExecuteWorker:å¼‚å¸¸(é¡µé¢å´©æºƒ): {ctx.LastFailureReason}");
                     return (false, ctx.PageTriggerClick, ctx.PageAdsCount);
                 }
 

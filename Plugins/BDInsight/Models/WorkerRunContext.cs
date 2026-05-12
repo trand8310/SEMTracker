@@ -1,6 +1,7 @@
 ﻿using BDInsight.LandingPolicy;
 using Microsoft.Playwright;
 using SEM.Plugins;
+using System.Threading;
 
 
 namespace BDInsight.Models
@@ -34,6 +35,7 @@ namespace BDInsight.Models
         public string? ProxyFailedReason { get; set; }
         public bool PageCrashed { get; set; }
         public string? LastFailureReason { get; set; }
+        public SemaphoreSlim CleanupLock { get; } = new(1, 1);
 
 
         public void ResetPerPvState()
