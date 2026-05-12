@@ -468,7 +468,15 @@ namespace BDInsight.Swiper
                         var pos = await GetElementViewportPositionAsync(page, element);
 
                         if (pos == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         ScrollDirection direction = pos.CenterY < 0
                             ? ScrollDirection.Down
@@ -488,7 +496,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -531,7 +547,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -556,7 +580,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -581,7 +613,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -598,6 +638,8 @@ namespace BDInsight.Swiper
                     return traces;
                 }
             }
+
+            await TryScrollIntoViewIfNeededAsync(element, cancellationToken);
 
             return traces;
         }
@@ -650,7 +692,15 @@ namespace BDInsight.Swiper
                         var pos = await GetElementViewportPositionAsync(page, element);
 
                         if (pos == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         ScrollDirection direction = pos.CenterY < 0
                             ? ScrollDirection.Down
@@ -670,7 +720,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -713,7 +771,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -738,7 +804,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -763,7 +837,15 @@ namespace BDInsight.Swiper
                             cancellationToken: cancellationToken);
 
                         if (trace == null)
+                        {
+                            if (await TryScrollIntoViewIfNeededAsync(element, cancellationToken))
+                            {
+                                await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
+                                continue;
+                            }
+
                             return traces;
+                        }
 
                         traces.Add(trace);
 
@@ -781,9 +863,59 @@ namespace BDInsight.Swiper
                 }
             }
 
+            await TryScrollIntoViewIfNeededAsync(element, cancellationToken);
+
             return traces;
         }
 
+
+        private static async Task<bool> TryScrollIntoViewIfNeededAsync(ILocator element, CancellationToken cancellationToken)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                await element.ScrollIntoViewIfNeededAsync(new()
+                {
+                    Timeout = CommonHelper.NextInt(1200, 2600)
+                });
+
+                cancellationToken.ThrowIfCancellationRequested();
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static async Task<bool> TryScrollIntoViewIfNeededAsync(IElementHandle element, CancellationToken cancellationToken)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                await element.ScrollIntoViewIfNeededAsync(new()
+                {
+                    Timeout = CommonHelper.NextInt(1200, 2600)
+                });
+
+                cancellationToken.ThrowIfCancellationRequested();
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         private static int? CalcElementBrowseTargetDistance(
             double distanceToTarget,
