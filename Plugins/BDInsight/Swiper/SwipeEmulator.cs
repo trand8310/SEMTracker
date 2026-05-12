@@ -53,6 +53,80 @@ namespace BDInsight.Swiper
         public bool IsMicroSwipe { get; set; }
     }
 
+    public sealed class SwipeGestureProfile
+    {
+        public float MinSideDriftPx { get; init; }
+        public float MaxSideDriftPx { get; init; }
+        public double SideDriftLowRatio { get; init; } = 0.35;
+        public double SideDriftHighRatio { get; init; } = 0.12;
+        public double SettleJitterMinPx { get; init; }
+        public double SettleJitterMaxPx { get; init; }
+        public int MinSteps { get; init; }
+        public double TinyBackChance { get; init; }
+        public double TinyBackMinRatio { get; init; }
+        public double TinyBackMaxRatio { get; init; }
+        public int TouchRadiusMin { get; init; }
+        public int TouchRadiusMaxExclusive { get; init; }
+        public double StartForceMin { get; init; }
+        public double StartForceMax { get; init; }
+        public int HoldBeforeMoveMinMs { get; init; }
+        public int HoldBeforeMoveMaxMsExclusive { get; init; }
+        public int HoldAfterMoveMinMs { get; init; }
+        public int HoldAfterMoveMaxMsExclusive { get; init; }
+        public double OccasionalPauseChance { get; init; }
+        public int OccasionalPauseMinMs { get; init; } = 6;
+        public int OccasionalPauseMaxMsExclusive { get; init; } = 18;
+
+        public static SwipeGestureProfile For(bool microSwipe)
+        {
+            return microSwipe ? Micro : Normal;
+        }
+
+        public static SwipeGestureProfile Micro { get; } = new()
+        {
+            MinSideDriftPx = 1.0f,
+            MaxSideDriftPx = 2.4f,
+            SettleJitterMinPx = 0.20,
+            SettleJitterMaxPx = 0.55,
+            MinSteps = 8,
+            TinyBackChance = 0,
+            TinyBackMinRatio = 0,
+            TinyBackMaxRatio = 0,
+            TouchRadiusMin = 2,
+            TouchRadiusMaxExclusive = 4,
+            StartForceMin = 0.72,
+            StartForceMax = 0.92,
+            HoldBeforeMoveMinMs = 18,
+            HoldBeforeMoveMaxMsExclusive = 55,
+            HoldAfterMoveMinMs = 8,
+            HoldAfterMoveMaxMsExclusive = 35,
+            OccasionalPauseChance = 0.03
+        };
+
+        public static SwipeGestureProfile Normal { get; } = new()
+        {
+            MinSideDriftPx = 2.2f,
+            MaxSideDriftPx = 5.2f,
+            SettleJitterMinPx = 0.45,
+            SettleJitterMaxPx = 0.95,
+            MinSteps = 14,
+            TinyBackChance = 0.20,
+            TinyBackMinRatio = 0.002,
+            TinyBackMaxRatio = 0.006,
+            TouchRadiusMin = 3,
+            TouchRadiusMaxExclusive = 7,
+            StartForceMin = 0.78,
+            StartForceMax = 0.98,
+            HoldBeforeMoveMinMs = 35,
+            HoldBeforeMoveMaxMsExclusive = 120,
+            HoldAfterMoveMinMs = 18,
+            HoldAfterMoveMaxMsExclusive = 70,
+            OccasionalPauseChance = 0.05
+        };
+    }
+
+    internal readonly record struct TouchSample(Vector2 Point, int DelayMs, int Radius, double Force);
+
     public sealed class PageScrollState
     {
         public double ScrollX { get; set; }
@@ -1392,13 +1466,13 @@ namespace BDInsight.Swiper
             return (start, end);
         }
 
-        private static List<Vector2> GetHumanLikeSwipePoints(
+        private static List<Vector2> GetSwipePoints(
             Vector2 start,
             Vector2 end,
             int steps,
-            bool microSwipe)
+            SwipeGestureProfile profile)
         {
-            steps = Math.Max(steps, microSwipe ? 8 : 14);
+            steps = Math.Max(steps, profile.MinSteps);
 
             var points = new List<Vector2>(steps + 1);
 
@@ -1416,19 +1490,17 @@ namespace BDInsight.Swiper
             float nx = -dy / distance;
             float ny = dx / distance;
 
-            float sideDriftBase = microSwipe
-                ? (float)CommonHelper.NextDouble(1.0, 2.4)
-                : (float)CommonHelper.NextDouble(2.2, 5.2);
+            float sideDriftBase = (float)CommonHelper.NextDouble(profile.MinSideDriftPx, profile.MaxSideDriftPx);
 
             float phase1 = (float)CommonHelper.NextDouble(0, Math.PI * 2);
             float phase2 = (float)CommonHelper.NextDouble(0, Math.PI * 2);
 
-            float amp1 = (float)CommonHelper.NextDouble(sideDriftBase * 0.35, sideDriftBase);
-            float amp2 = (float)CommonHelper.NextDouble(sideDriftBase * 0.12, sideDriftBase * 0.42);
+            float amp1 = (float)CommonHelper.NextDouble(sideDriftBase * profile.SideDriftLowRatio, sideDriftBase);
+            float amp2 = (float)CommonHelper.NextDouble(sideDriftBase * profile.SideDriftHighRatio, sideDriftBase * 0.42);
 
-            bool addTinyBack = !microSwipe && CommonHelper.Chance(0.20);
+            bool addTinyBack = profile.TinyBackChance > 0 && CommonHelper.Chance(profile.TinyBackChance);
             float maxBackRatio = addTinyBack
-                ? (float)CommonHelper.NextDouble(0.002, 0.006)
+                ? (float)CommonHelper.NextDouble(profile.TinyBackMinRatio, profile.TinyBackMaxRatio)
                 : 0;
 
             for (int i = 0; i <= steps; i++)
@@ -1436,38 +1508,34 @@ namespace BDInsight.Swiper
                 float tRaw = i / (float)steps;
                 float t = EaseInOutQuint(tRaw);
 
-                float x = start.X + dx * t;
-                float y = start.Y + dy * t;
+                Vector2 point = Vector2.Lerp(start, end, t);
 
                 float drift =
                     MathF.Sin(tRaw * MathF.PI * 0.92f + phase1) * amp1 +
                     MathF.Sin(tRaw * MathF.PI * 1.75f + phase2) * amp2;
 
-                float fade = MathF.Sin(tRaw * MathF.PI);
-                drift *= fade;
+                drift *= MathF.Sin(tRaw * MathF.PI);
 
-                x += nx * drift;
-                y += ny * drift;
+                point.X += nx * drift;
+                point.Y += ny * drift;
 
                 if (tRaw > 0.76f)
                 {
                     float settle = SmoothStep((tRaw - 0.76f) / 0.24f);
-                    float tiny = microSwipe
-                        ? (float)CommonHelper.NextDouble(0.20, 0.55)
-                        : (float)CommonHelper.NextDouble(0.45, 0.95);
+                    float tiny = (float)CommonHelper.NextDouble(profile.SettleJitterMinPx, profile.SettleJitterMaxPx);
 
-                    x += MathF.Sin(tRaw * MathF.PI * 5.5f + phase2) * tiny * settle;
-                    y += MathF.Sin(tRaw * MathF.PI * 4.5f + phase1) * tiny * settle * 0.55f;
+                    point.X += MathF.Sin(tRaw * MathF.PI * 5.5f + phase2) * tiny * settle;
+                    point.Y += MathF.Sin(tRaw * MathF.PI * 4.5f + phase1) * tiny * settle * 0.55f;
                 }
 
                 if (addTinyBack && tRaw > 0.88f)
                 {
                     float backRatio = maxBackRatio * SmoothStep((tRaw - 0.88f) / 0.12f);
-                    x -= dx * backRatio;
-                    y -= dy * backRatio;
+                    point.X -= dx * backRatio;
+                    point.Y -= dy * backRatio;
                 }
 
-                points.Add(new Vector2(x, y));
+                points.Add(point);
             }
 
             return points;
@@ -1486,90 +1554,38 @@ namespace BDInsight.Swiper
             bool microSwipe,
             CancellationToken cancellationToken)
         {
-            var points = GetHumanLikeSwipePoints(start, end, steps, microSwipe);
+            var profile = SwipeGestureProfile.For(microSwipe);
+            var points = GetSwipePoints(start, end, steps, profile);
+            var samples = BuildTouchSamples(points, profile, microSwipe);
 
             int totalDelay = 0;
             bool touchStarted = false;
 
             try
             {
-                double startForce = microSwipe
-                    ? CommonHelper.NextDouble(0.72, 0.92)
-                    : CommonHelper.NextDouble(0.78, 0.98);
-
-                int radius = microSwipe
-                    ? CommonHelper.NextInt(2, 4)
-                    : CommonHelper.NextInt(3, 7);
-
-                await client.SendAsync("Input.dispatchTouchEvent", new Dictionary<string, object>
-                {
-                    ["type"] = "touchStart",
-                    ["touchPoints"] = new object[]
-                    {
-                        new
-                        {
-                            x = MathF.Round(points[0].X, 2),
-                            y = MathF.Round(points[0].Y, 2),
-                            radiusX = radius,
-                            radiusY = radius,
-                            force = startForce,
-                            id = 0
-                        }
-                    },
-                    ["modifiers"] = 0
-                });
-
+                await DispatchTouchAsync(client, "touchStart", samples[0]);
                 touchStarted = true;
 
-                int holdBeforeMove = microSwipe
-                    ? CommonHelper.NextInt(18, 55)
-                    : CommonHelper.NextInt(35, 120);
+                int holdBeforeMove = CommonHelper.NextInt(
+                    profile.HoldBeforeMoveMinMs,
+                    profile.HoldBeforeMoveMaxMsExclusive);
 
                 await Task.Delay(holdBeforeMove, cancellationToken);
                 totalDelay += holdBeforeMove;
 
-                for (int i = 1; i < points.Count; i++)
+                for (int i = 1; i < samples.Count; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    float progress = i / (float)(points.Count - 1);
+                    await DispatchTouchAsync(client, "touchMove", samples[i]);
 
-                    int delay = GetHumanMoveDelay(progress, microSwipe);
-
-                    if (CommonHelper.Chance(microSwipe ? 0.03 : 0.05))
-                        delay += CommonHelper.NextInt(6, 18);
-
-                    double force = GetHumanForce(progress, microSwipe);
-
-                    int moveRadius = microSwipe
-                        ? CommonHelper.NextInt(2, 4)
-                        : CommonHelper.NextInt(3, 6);
-
-                    await client.SendAsync("Input.dispatchTouchEvent", new Dictionary<string, object>
-                    {
-                        ["type"] = "touchMove",
-                        ["touchPoints"] = new object[]
-                        {
-                            new
-                            {
-                                x = MathF.Round(points[i].X, 2),
-                                y = MathF.Round(points[i].Y, 2),
-                                radiusX = moveRadius,
-                                radiusY = moveRadius,
-                                force = force,
-                                id = 0
-                            }
-                        },
-                        ["modifiers"] = 0
-                    });
-
-                    await Task.Delay(delay, cancellationToken);
-                    totalDelay += delay;
+                    await Task.Delay(samples[i].DelayMs, cancellationToken);
+                    totalDelay += samples[i].DelayMs;
                 }
 
-                int holdAfterMove = microSwipe
-                    ? CommonHelper.NextInt(8, 35)
-                    : CommonHelper.NextInt(18, 70);
+                int holdAfterMove = CommonHelper.NextInt(
+                    profile.HoldAfterMoveMinMs,
+                    profile.HoldAfterMoveMaxMsExclusive);
 
                 await Task.Delay(holdAfterMove, cancellationToken);
                 totalDelay += holdAfterMove;
@@ -1609,6 +1625,58 @@ namespace BDInsight.Swiper
                 Direction = direction,
                 IsMicroSwipe = microSwipe
             };
+        }
+
+        private static List<TouchSample> BuildTouchSamples(
+            IReadOnlyList<Vector2> points,
+            SwipeGestureProfile profile,
+            bool microSwipe)
+        {
+            var samples = new List<TouchSample>(points.Count);
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                float progress = points.Count <= 1
+                    ? 1
+                    : i / (float)(points.Count - 1);
+
+                int delay = i == 0
+                    ? 0
+                    : GetHumanMoveDelay(progress, microSwipe);
+
+                if (i > 0 && CommonHelper.Chance(profile.OccasionalPauseChance))
+                    delay += CommonHelper.NextInt(profile.OccasionalPauseMinMs, profile.OccasionalPauseMaxMsExclusive);
+
+                int radius = CommonHelper.NextInt(profile.TouchRadiusMin, profile.TouchRadiusMaxExclusive);
+                double force = i == 0
+                    ? CommonHelper.NextDouble(profile.StartForceMin, profile.StartForceMax)
+                    : GetHumanForce(progress, microSwipe);
+
+                samples.Add(new TouchSample(points[i], delay, radius, force));
+            }
+
+            return samples;
+        }
+
+        private static Task DispatchTouchAsync(ICDPSession client, string type, TouchSample sample)
+        {
+            return client.SendAsync("Input.dispatchTouchEvent", new Dictionary<string, object>
+            {
+                ["type"] = type,
+                ["touchPoints"] = new object[]
+                {
+                    new
+                    {
+                        x = MathF.Round(sample.Point.X, 2),
+                        y = MathF.Round(sample.Point.Y, 2),
+                        radiusX = sample.Radius,
+                        radiusY = sample.Radius,
+                        force = sample.Force,
+                        id = 0
+                    }
+                },
+                ["modifiers"] = 0
+            });
         }
 
         private static int GetHumanMoveDelay(float progress, bool microSwipe)
