@@ -63,8 +63,9 @@ namespace BDInsight.Swiper
                         break;
 
                     int vh = viewport.Height;
+                    PageScrollDirection actualDirection = PickHumanPageDirection(direction);
 
-                    if (direction == PageScrollDirection.Down && options.EnableTopProtection)
+                    if (actualDirection == PageScrollDirection.Down && options.EnableTopProtection)
                     {
                         bool nearTop = await IsNearTopAsync(page, options.NearTopThresholdPx);
                         if (nearTop)
@@ -73,13 +74,15 @@ namespace BDInsight.Swiper
 
                     var profile = ResolveHumanScrollProfile(
                         viewportHeight: vh,
-                        direction: direction,
+                        direction: actualDirection,
                         index: i,
                         scrollCount: scrollCount,
                         noMoveCount: noMoveCount,
                         options: options);
 
-                    ScrollDirection swipeDirection = ToSwipeDirection(direction);
+                    await DelayBeforeTouchScrollGestureAsync(i, profile, cancellationToken);
+
+                    ScrollDirection swipeDirection = ToSwipeDirection(actualDirection);
 
                     var trace = await SwipeEmulator.SwipeOnceHumanAsync(
                         page: page,
@@ -103,6 +106,13 @@ namespace BDInsight.Swiper
                     else
                     {
                         noMoveCount = 0;
+                        await MaybeDoHumanSettleNudgeAsync(
+                            page: page,
+                            client: client,
+                            direction: actualDirection,
+                            viewportHeight: vh,
+                            options: options,
+                            cancellationToken: cancellationToken);
                     }
 
                     if (await ShouldStopByPredicateAsync(page, predexp))
@@ -304,6 +314,50 @@ namespace BDInsight.Swiper
         }
 
         /// <summary>
+        /// 使用 CDP Input.synthesizeScrollGesture 合成滚动，便于和 TouchPageScrollAsync 的真实 touch 轨迹效果对比。
+        /// </summary>
+        public static Task<List<SynthesizedScrollGestureEmulator.SynthesizedScrollTrace>> SynthesizedGesturePageScrollAsync(
+            IPage page,
+            ICDPSession client,
+            int scrollCount,
+            PageScrollDirection direction,
+            Func<IPage, Task<bool>>? predexp = null,
+            int timeDelay = 0,
+            ScrollOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            return SynthesizedScrollGestureEmulator.PageScrollAsync(
+                page: page,
+                client: client,
+                scrollCount: scrollCount,
+                direction: direction,
+                predexp: predexp,
+                timeDelay: timeDelay,
+                options: options,
+                cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
+        /// 使用 CDP Input.synthesizeScrollGesture 合成单次滚动。
+        /// </summary>
+        public static Task<SynthesizedScrollGestureEmulator.SynthesizedScrollTrace?> SynthesizedGesturePageScrollOnceAsync(
+            IPage page,
+            ICDPSession client,
+            PageScrollDirection direction,
+            int? distancePx = null,
+            int? speed = null,
+            CancellationToken cancellationToken = default)
+        {
+            return SynthesizedScrollGestureEmulator.SynthesizeScrollOnceAsync(
+                page: page,
+                client: client,
+                direction: direction,
+                distancePx: distancePx,
+                speed: speed,
+                cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
         /// 滑动到元素舒适区。
         /// 这个方法直接使用 SwipeEmulator 的元素定位滑动能力。
         /// </summary>
@@ -470,8 +524,8 @@ namespace BDInsight.Swiper
             {
                 case HumanScrollMode.Short:
                     distancePx = direction == PageScrollDirection.Up
-                        ? NextIntSafe((int)(vh * 0.22), (int)(vh * 0.36))
-                        : NextIntSafe((int)(vh * 0.10), (int)(vh * 0.18));
+                        ? NextIntSafe((int)(vh * 0.18), (int)(vh * 0.32))
+                        : NextIntSafe((int)(vh * 0.08), (int)(vh * 0.16));
 
                     micro = false;
                     area = SwipeArea.Normal;
@@ -479,8 +533,8 @@ namespace BDInsight.Swiper
 
                 case HumanScrollMode.Long:
                     distancePx = direction == PageScrollDirection.Up
-                        ? NextIntSafe((int)(vh * 0.50), (int)(vh * 0.66))
-                        : NextIntSafe((int)(vh * 0.14), (int)(vh * 0.24));
+                        ? NextIntSafe((int)(vh * 0.42), (int)(vh * 0.60))
+                        : NextIntSafe((int)(vh * 0.12), (int)(vh * 0.22));
 
                     micro = false;
                     area = SwipeArea.Normal;
@@ -508,8 +562,8 @@ namespace BDInsight.Swiper
                 case HumanScrollMode.Auto:
                 default:
                     distancePx = direction == PageScrollDirection.Up
-                        ? NextIntSafe((int)(vh * 0.34), (int)(vh * 0.58))
-                        : NextIntSafe((int)(vh * 0.10), (int)(vh * 0.20));
+                        ? NextIntSafe((int)(vh * 0.26), (int)(vh * 0.50))
+                        : NextIntSafe((int)(vh * 0.08), (int)(vh * 0.18));
 
                     micro = distancePx <= vh * 0.18;
                     area = micro ? SwipeArea.Micro : SwipeArea.Normal;
@@ -551,24 +605,73 @@ namespace BDInsight.Swiper
             };
         }
 
+        private static async Task DelayBeforeTouchScrollGestureAsync(
+            int index,
+            HumanScrollProfile profile,
+            CancellationToken cancellationToken)
+        {
+            int delay = index == 0
+                ? CommonHelper.NextInt(160, 420)
+                : CommonHelper.NextInt(70, 220);
+
+            if (profile.Mode == HumanScrollMode.FineTune || profile.MicroSwipe)
+                delay += CommonHelper.NextInt(80, 220);
+
+            if (CommonHelper.Chance(0.18))
+                delay += CommonHelper.NextInt(240, 780);
+
+            await Task.Delay(delay, cancellationToken);
+        }
+
+        private static async Task MaybeDoHumanSettleNudgeAsync(
+            IPage page,
+            ICDPSession client,
+            PageScrollDirection direction,
+            int viewportHeight,
+            ScrollOptions options,
+            CancellationToken cancellationToken)
+        {
+            if (!options.EnableAutoMix || CommonHelper.Chance(0.82))
+                return;
+
+            if (page == null || page.IsClosed || client == null)
+                return;
+
+            int distance = CommonHelper.NextInt(
+                Math.Max(18, (int)(viewportHeight * 0.035)),
+                Math.Max(28, (int)(viewportHeight * 0.085)));
+
+            await Task.Delay(CommonHelper.NextInt(120, 360), cancellationToken);
+
+            await SwipeEmulator.SwipeOnceHumanAsync(
+                page: page,
+                client: client,
+                direction: ToSwipeDirection(direction),
+                area: SwipeArea.Micro,
+                microSwipe: true,
+                totalDistancePx: distance,
+                verifyScrollChanged: false,
+                cancellationToken: cancellationToken);
+        }
+
         private static int GuessPointCount(
             int viewportHeight,
             int distancePx,
             PageScrollDirection direction)
         {
             if (direction == PageScrollDirection.Down)
-                return NextIntSafe(8, 12);
+                return NextIntSafe(12, 20);
 
             if (distancePx >= viewportHeight * 0.50)
-                return NextIntSafe(18, 28);
+                return NextIntSafe(30, 46);
 
             if (distancePx >= viewportHeight * 0.30)
-                return NextIntSafe(14, 22);
+                return NextIntSafe(24, 38);
 
             if (distancePx >= viewportHeight * 0.15)
-                return NextIntSafe(10, 16);
+                return NextIntSafe(18, 28);
 
-            return NextIntSafe(8, 12);
+            return NextIntSafe(12, 20);
         }
 
         private static int GuessPauseMs(
@@ -576,15 +679,15 @@ namespace BDInsight.Swiper
             int distancePx)
         {
             if (direction == PageScrollDirection.Down)
-                return CommonHelper.NextInt(280, 580);
+                return CommonHelper.NextInt(420, 860);
 
             if (distancePx >= 420)
-                return CommonHelper.NextInt(580, 1100);
+                return CommonHelper.NextInt(820, 1650);
 
             if (distancePx >= 260)
-                return CommonHelper.NextInt(420, 850);
+                return CommonHelper.NextInt(620, 1250);
 
-            return CommonHelper.NextInt(220, 520);
+            return CommonHelper.NextInt(360, 820);
         }
 
         private static int ClampDistance(int distancePx, int viewportHeight)
@@ -593,6 +696,16 @@ namespace BDInsight.Swiper
             int max = Math.Max(min + 1, (int)(viewportHeight * 0.72));
 
             return Math.Clamp(distancePx, min, max);
+        }
+
+        private static PageScrollDirection PickHumanPageDirection(PageScrollDirection direction)
+        {
+            if (direction != PageScrollDirection.Random)
+                return direction;
+
+            return CommonHelper.Chance(0.88)
+                ? PageScrollDirection.Up
+                : PageScrollDirection.Down;
         }
 
         private static ScrollDirection ToSwipeDirection(PageScrollDirection direction)
