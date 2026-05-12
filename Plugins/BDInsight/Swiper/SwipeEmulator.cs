@@ -1415,19 +1415,22 @@ namespace BDInsight.Swiper
             float amp1 = (float)CommonHelper.NextDouble(sideDriftBase * 0.35, sideDriftBase);
             float amp2 = (float)CommonHelper.NextDouble(sideDriftBase * 0.12, sideDriftBase * 0.42);
 
-            bool addTinyBack = !microSwipe && CommonHelper.Chance(0.24);
+            bool addTinyBack = !microSwipe && CommonHelper.Chance(0.20);
+            float maxBackRatio = addTinyBack
+                ? (float)CommonHelper.NextDouble(0.002, 0.006)
+                : 0;
 
             for (int i = 0; i <= steps; i++)
             {
                 float tRaw = i / (float)steps;
-                float t = EaseInOutCubic(tRaw);
+                float t = EaseInOutQuint(tRaw);
 
                 float x = start.X + dx * t;
                 float y = start.Y + dy * t;
 
                 float drift =
-                    MathF.Sin(tRaw * MathF.PI * 1.05f + phase1) * amp1 +
-                    MathF.Sin(tRaw * MathF.PI * 2.10f + phase2) * amp2;
+                    MathF.Sin(tRaw * MathF.PI * 0.92f + phase1) * amp1 +
+                    MathF.Sin(tRaw * MathF.PI * 1.75f + phase2) * amp2;
 
                 float fade = MathF.Sin(tRaw * MathF.PI);
                 drift *= fade;
@@ -1435,19 +1438,20 @@ namespace BDInsight.Swiper
                 x += nx * drift;
                 y += ny * drift;
 
-                if (tRaw > 0.78f)
+                if (tRaw > 0.76f)
                 {
+                    float settle = SmoothStep((tRaw - 0.76f) / 0.24f);
                     float tiny = microSwipe
-                        ? (float)CommonHelper.NextDouble(0.10, 0.70)
-                        : (float)CommonHelper.NextDouble(0.25, 1.20);
+                        ? (float)CommonHelper.NextDouble(0.20, 0.55)
+                        : (float)CommonHelper.NextDouble(0.45, 0.95);
 
-                    x += (float)CommonHelper.NextDouble(-tiny, tiny);
-                    y += (float)CommonHelper.NextDouble(-tiny, tiny);
+                    x += MathF.Sin(tRaw * MathF.PI * 5.5f + phase2) * tiny * settle;
+                    y += MathF.Sin(tRaw * MathF.PI * 4.5f + phase1) * tiny * settle * 0.55f;
                 }
 
                 if (addTinyBack && tRaw > 0.88f)
                 {
-                    float backRatio = (float)CommonHelper.NextDouble(0.002, 0.008);
+                    float backRatio = maxBackRatio * SmoothStep((tRaw - 0.88f) / 0.12f);
                     x -= dx * backRatio;
                     y -= dy * backRatio;
                 }
@@ -1521,8 +1525,8 @@ namespace BDInsight.Swiper
 
                     int delay = GetHumanMoveDelay(progress, microSwipe);
 
-                    if (CommonHelper.Chance(microSwipe ? 0.04 : 0.08))
-                        delay += CommonHelper.NextInt(8, 28);
+                    if (CommonHelper.Chance(microSwipe ? 0.03 : 0.05))
+                        delay += CommonHelper.NextInt(6, 18);
 
                     double force = GetHumanForce(progress, microSwipe);
 
@@ -1603,32 +1607,32 @@ namespace BDInsight.Swiper
             if (progress < 0.08f)
             {
                 delay = microSwipe
-                    ? CommonHelper.NextInt(12, 24)
-                    : CommonHelper.NextInt(18, 35);
+                    ? CommonHelper.NextInt(10, 20)
+                    : CommonHelper.NextInt(14, 28);
             }
             else if (progress < 0.22f)
             {
                 delay = microSwipe
-                    ? CommonHelper.NextInt(7, 16)
-                    : CommonHelper.NextInt(9, 22);
+                    ? CommonHelper.NextInt(7, 14)
+                    : CommonHelper.NextInt(9, 18);
             }
             else if (progress < 0.72f)
             {
                 delay = microSwipe
-                    ? CommonHelper.NextInt(4, 11)
-                    : CommonHelper.NextInt(5, 15);
+                    ? CommonHelper.NextInt(5, 10)
+                    : CommonHelper.NextInt(6, 13);
             }
             else if (progress < 0.90f)
             {
                 delay = microSwipe
-                    ? CommonHelper.NextInt(7, 16)
-                    : CommonHelper.NextInt(9, 22);
+                    ? CommonHelper.NextInt(7, 15)
+                    : CommonHelper.NextInt(10, 20);
             }
             else
             {
                 delay = microSwipe
-                    ? CommonHelper.NextInt(12, 26)
-                    : CommonHelper.NextInt(15, 38);
+                    ? CommonHelper.NextInt(11, 22)
+                    : CommonHelper.NextInt(15, 30);
             }
 
             return delay;
@@ -1682,8 +1686,8 @@ namespace BDInsight.Swiper
             if (distance <= 0)
                 return microSwipe ? 8 : 14;
 
-            int minSteps = microSwipe ? 8 : 14;
-            int maxSteps = microSwipe ? 18 : 34;
+            int minSteps = microSwipe ? 12 : 24;
+            int maxSteps = microSwipe ? 28 : 58;
 
             double ratio = Math.Min(distance / (viewportHeight * 0.75), 1.0);
 
@@ -1699,6 +1703,21 @@ namespace BDInsight.Swiper
             return t < 0.5f
                 ? 4 * t * t * t
                 : 1 - MathF.Pow(-2 * t + 2, 3) / 2;
+        }
+
+        private static float EaseInOutQuint(float t)
+        {
+            t = Math.Clamp(t, 0f, 1f);
+
+            return t < 0.5f
+                ? 16 * t * t * t * t * t
+                : 1 - MathF.Pow(-2 * t + 2, 5) / 2;
+        }
+
+        private static float SmoothStep(float t)
+        {
+            t = Math.Clamp(t, 0f, 1f);
+            return t * t * (3 - 2 * t);
         }
 
         private sealed class ElementViewportPosition
