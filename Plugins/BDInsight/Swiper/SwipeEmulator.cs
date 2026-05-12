@@ -450,6 +450,8 @@ namespace BDInsight.Swiper
                 return traces;
             }
 
+            await DelayBeforeElementBrowseAsync(cancellationToken);
+
             for (int i = 0; i < maxSwipes; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -472,7 +474,7 @@ namespace BDInsight.Swiper
                             ? ScrollDirection.Down
                             : ScrollDirection.Up;
 
-                        int? distance = (int)Math.Clamp(vh * 0.42, vh * 0.24, vh * 0.58);
+                        int? distance = (int)Math.Clamp(vh * 0.30, vh * 0.18, vh * 0.38);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -480,6 +482,7 @@ namespace BDInsight.Swiper
                             direction: direction,
                             area: SwipeArea.Normal,
                             microSwipe: false,
+                            steps: CalcElementBrowseSwipeSteps(distance, vh, microSwipe: false),
                             totalDistancePx: distance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -489,7 +492,7 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(120, 280), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
                         continue;
                     }
 
@@ -510,11 +513,11 @@ namespace BDInsight.Swiper
                             ? ScrollDirection.Down
                             : ScrollDirection.Up;
 
-                        bool useMicro = distanceToComfort < vh * 0.20;
+                        bool useMicro = distanceToComfort < vh * 0.24;
 
                         int? targetDistance = useMicro
-                            ? (int)Math.Clamp(distanceToComfort * 0.90, vh * 0.08, vh * 0.18)
-                            : (int)Math.Clamp(distanceToComfort * 0.94, vh * 0.18, vh * 0.42);
+                            ? CalcElementBrowseTargetDistance(distanceToComfort, vh, 0.58, 0.74, 0.06, 0.16)
+                            : CalcElementBrowseTargetDistance(distanceToComfort, vh, 0.64, 0.80, 0.14, 0.32);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -522,6 +525,7 @@ namespace BDInsight.Swiper
                             direction: direction,
                             area: useMicro ? SwipeArea.Micro : SwipeArea.Normal,
                             microSwipe: useMicro,
+                            steps: CalcElementBrowseSwipeSteps(targetDistance, vh, useMicro),
                             totalDistancePx: targetDistance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -531,14 +535,14 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(100, 240), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(useMicro, cancellationToken);
                         continue;
                     }
 
                     if (top > vh)
                     {
                         double distance = top - comfortBottom;
-                        int? targetDistance = (int)Math.Clamp(distance * 0.92, vh * 0.22, vh * 0.58);
+                        int? targetDistance = CalcElementBrowseTargetDistance(distance, vh, 0.55, 0.76, 0.18, 0.42);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -546,6 +550,7 @@ namespace BDInsight.Swiper
                             direction: ScrollDirection.Up,
                             area: SwipeArea.Normal,
                             microSwipe: false,
+                            steps: CalcElementBrowseSwipeSteps(targetDistance, vh, microSwipe: false),
                             totalDistancePx: targetDistance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -555,14 +560,14 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(120, 280), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
                         continue;
                     }
 
                     if (bottom < 0)
                     {
                         double distance = comfortTop - bottom;
-                        int? targetDistance = (int)Math.Clamp(distance * 0.92, vh * 0.18, vh * 0.46);
+                        int? targetDistance = CalcElementBrowseTargetDistance(distance, vh, 0.55, 0.76, 0.16, 0.36);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -570,6 +575,7 @@ namespace BDInsight.Swiper
                             direction: ScrollDirection.Down,
                             area: SwipeArea.Normal,
                             microSwipe: false,
+                            steps: CalcElementBrowseSwipeSteps(targetDistance, vh, microSwipe: false),
                             totalDistancePx: targetDistance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -579,7 +585,7 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(120, 280), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
                         continue;
                     }
                 }
@@ -598,11 +604,11 @@ namespace BDInsight.Swiper
 
 
         public static async Task<List<SwipeTrace>> SwipeToElementAsync(
-        IPage page,
-        ICDPSession client,
-        IElementHandle element,
-        int maxSwipes = 10,
-        CancellationToken cancellationToken = default)
+            IPage page,
+            ICDPSession client,
+            IElementHandle element,
+            int maxSwipes = 10,
+            CancellationToken cancellationToken = default)
         {
             var traces = new List<SwipeTrace>();
 
@@ -626,6 +632,8 @@ namespace BDInsight.Swiper
                 return traces;
             }
 
+            await DelayBeforeElementBrowseAsync(cancellationToken);
+
             for (int i = 0; i < maxSwipes; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -648,7 +656,7 @@ namespace BDInsight.Swiper
                             ? ScrollDirection.Down
                             : ScrollDirection.Up;
 
-                        int? distance = (int)Math.Clamp(vh * 0.42, vh * 0.24, vh * 0.58);
+                        int? distance = (int)Math.Clamp(vh * 0.30, vh * 0.18, vh * 0.38);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -656,6 +664,7 @@ namespace BDInsight.Swiper
                             direction: direction,
                             area: SwipeArea.Normal,
                             microSwipe: false,
+                            steps: CalcElementBrowseSwipeSteps(distance, vh, microSwipe: false),
                             totalDistancePx: distance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -665,7 +674,7 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(120, 280), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
                         continue;
                     }
 
@@ -686,11 +695,11 @@ namespace BDInsight.Swiper
                             ? ScrollDirection.Down
                             : ScrollDirection.Up;
 
-                        bool useMicro = distanceToComfort < vh * 0.20;
+                        bool useMicro = distanceToComfort < vh * 0.24;
 
                         int? targetDistance = useMicro
-                            ? (int)Math.Clamp(distanceToComfort * 0.90, vh * 0.08, vh * 0.18)
-                            : (int)Math.Clamp(distanceToComfort * 0.94, vh * 0.18, vh * 0.42);
+                            ? CalcElementBrowseTargetDistance(distanceToComfort, vh, 0.58, 0.74, 0.06, 0.16)
+                            : CalcElementBrowseTargetDistance(distanceToComfort, vh, 0.64, 0.80, 0.14, 0.32);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -698,6 +707,7 @@ namespace BDInsight.Swiper
                             direction: direction,
                             area: useMicro ? SwipeArea.Micro : SwipeArea.Normal,
                             microSwipe: useMicro,
+                            steps: CalcElementBrowseSwipeSteps(targetDistance, vh, useMicro),
                             totalDistancePx: targetDistance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -707,14 +717,14 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(100, 240), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(useMicro, cancellationToken);
                         continue;
                     }
 
                     if (top > vh)
                     {
                         double distance = top - comfortBottom;
-                        int? targetDistance = (int)Math.Clamp(distance * 0.92, vh * 0.22, vh * 0.58);
+                        int? targetDistance = CalcElementBrowseTargetDistance(distance, vh, 0.55, 0.76, 0.18, 0.42);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -722,6 +732,7 @@ namespace BDInsight.Swiper
                             direction: ScrollDirection.Up,
                             area: SwipeArea.Normal,
                             microSwipe: false,
+                            steps: CalcElementBrowseSwipeSteps(targetDistance, vh, microSwipe: false),
                             totalDistancePx: targetDistance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -731,14 +742,14 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(120, 280), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
                         continue;
                     }
 
                     if (bottom < 0)
                     {
                         double distance = comfortTop - bottom;
-                        int? targetDistance = (int)Math.Clamp(distance * 0.92, vh * 0.18, vh * 0.46);
+                        int? targetDistance = CalcElementBrowseTargetDistance(distance, vh, 0.55, 0.76, 0.16, 0.36);
 
                         var trace = await SwipeOnceHumanAsync(
                             page: page,
@@ -746,6 +757,7 @@ namespace BDInsight.Swiper
                             direction: ScrollDirection.Down,
                             area: SwipeArea.Normal,
                             microSwipe: false,
+                            steps: CalcElementBrowseSwipeSteps(targetDistance, vh, microSwipe: false),
                             totalDistancePx: targetDistance,
                             verifyScrollChanged: true,
                             cancellationToken: cancellationToken);
@@ -755,7 +767,7 @@ namespace BDInsight.Swiper
 
                         traces.Add(trace);
 
-                        await Task.Delay(CommonHelper.NextInt(120, 280), cancellationToken);
+                        await DelayAfterElementBrowseSwipeAsync(microSwipe: false, cancellationToken);
                         continue;
                     }
                 }
@@ -772,6 +784,51 @@ namespace BDInsight.Swiper
             return traces;
         }
 
+
+        private static int? CalcElementBrowseTargetDistance(
+            double distanceToTarget,
+            int viewportHeight,
+            double minDistanceRatio,
+            double maxDistanceRatio,
+            double minViewportRatio,
+            double maxViewportRatio)
+        {
+            double browseRatio = CommonHelper.NextDouble(minDistanceRatio, maxDistanceRatio);
+
+            return (int)Math.Clamp(
+                distanceToTarget * browseRatio,
+                viewportHeight * minViewportRatio,
+                viewportHeight * maxViewportRatio);
+        }
+
+        private static int CalcElementBrowseSwipeSteps(int? targetDistancePx, int viewportHeight, bool microSwipe)
+        {
+            int approximateDistance = targetDistancePx ?? (int)(viewportHeight * (microSwipe ? 0.12 : 0.30));
+            int steps = CalcSteps(approximateDistance, viewportHeight, microSwipe);
+
+            steps += microSwipe
+                ? CommonHelper.NextInt(4, 9)
+                : CommonHelper.NextInt(8, 16);
+
+            return Math.Clamp(
+                steps,
+                microSwipe ? 16 : 32,
+                microSwipe ? 36 : 74);
+        }
+
+        private static Task DelayBeforeElementBrowseAsync(CancellationToken cancellationToken)
+        {
+            return Task.Delay(CommonHelper.NextInt(180, 420), cancellationToken);
+        }
+
+        private static Task DelayAfterElementBrowseSwipeAsync(bool microSwipe, CancellationToken cancellationToken)
+        {
+            return Task.Delay(
+                microSwipe
+                    ? CommonHelper.NextInt(260, 560)
+                    : CommonHelper.NextInt(420, 980),
+                cancellationToken);
+        }
 
         #endregion
 
