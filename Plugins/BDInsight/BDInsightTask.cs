@@ -8,6 +8,7 @@ using SEM.Infrastructure;
 using SEM.Models;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection.Metadata;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -603,23 +604,26 @@ namespace SEM.Plugins
         {
             var args = new List<string>
             {
-                "--disable-extensions",
-                "--disable-default-apps",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-component-update",
-                "--disable-background-networking",
-                "--metrics-recording-only",
-                "--disable-client-side-phishing-detection",
-                "--disable-popup-blocking",
-                "--disable-infobars",
-                "--use-mock-keychain",
-                "--no-service-autorun",
-                "--force-color-profile=srgb",
-                "--disable-features=LensOverlay,Translate",
+
+
+
+                //"--disable-extensions",
+                //"--disable-default-apps",
+                //"--no-first-run",
+                //"--no-default-browser-check",
+                //"--disable-component-update",
+                //"--disable-background-networking",
+                //"--metrics-recording-only",
+                //"--disable-client-side-phishing-detection",
+                //"--disable-popup-blocking",
+                //"--disable-infobars",
+                //"--use-mock-keychain",
+                //"--no-service-autorun",
+                //"--force-color-profile=srgb",
+                //"--disable-features=LensOverlay,Translate",
+                //"--virtual-clipboard",
+                //"--touch-events=enabled",
                 "--disable-logging",
-                "--virtual-clipboard",
-                "--touch-events=enabled",
                 "--use-fake-ui-for-media-stream",
                 "--use-fake-device-for-media-stream",
                 "--show-avatar-button=never",
@@ -652,12 +656,12 @@ namespace SEM.Plugins
 
             if (config.TaskArgs.SelectToken("incognito")?.Value<bool>() ?? false)
             {
-                args.Add("--incognito");
-                args.Add("--enable-incognito-themes");
+                //args.Add("--incognito");
+                //args.Add("--enable-incognito-themes");
             }
             else
             {
-                args.Add($"--disk-cache-dir=\"{config.CacheDir}\"");
+                //args.Add($"--disk-cache-dir=\"{config.CacheDir}\"");
             }
 
             args.AddRange(InitFPArgs(config.TaskArgs, config.MaxTouchPoints));
@@ -1209,32 +1213,12 @@ namespace SEM.Plugins
                 }
 
                 LogWriteLine($"{this.Title}:ExecuteWorker: {((ctx.Config.PageLoadedDelayMs) / 1000.0):N2}");
-
-                token.ThrowIfCancellationRequested();
-
-                if (ctx.Page == null || ctx.Page.IsClosed)
-                {
-                    LogWriteLine($"{this.Title}:RunMainFlow: 滚动前 Page为空或已关闭");
-                    continue;
-                }
-
-                if (ctx.Browser == null || !ctx.Browser.IsConnected)
-                {
-                    LogWriteLine($"{this.Title}:RunMainFlow: 滚动前 Browser已断开");
-                    continue;
-                }
-
-
-
                 await Task.Delay(ctx.Config.PageLoadedDelayMs, token);
-
-
                 if (ctx.Config.IsTest)
                 {
                     await RunTestBranchAsync(ctx, entry, token);
                     return CompleteSuccess(ctx);
                 }
-
 
                 var adsOk = await DetectAdAsync(ctx, token);
                 if (!adsOk)
@@ -1254,19 +1238,14 @@ namespace SEM.Plugins
                 await DecideJumpClickAsync(ctx, token);
                 if (ctx.JumpClick)
                 {
-                    await HumanScrollHelper.TouchPageShortScrollAsync(
-                     ctx.Page,
-                     ctx.CdpSession!,
-                     scrollCount: CommonHelper.RandomRange(2, 4),
-                     direction: PageScrollDirection.Up,
-                     cancellationToken: token);
-
-                    await Task.Delay(CommonHelper.RandomRange(1234, 5678), token);
-
-
                     var clickFlow = await TryExecuteJumpClickAsync(ctx, token);
                     if (clickFlow == StepFlow.EndTask)
                         return CompleteSuccess(ctx);
+
+                    if (clickFlow == StepFlow.NextPv)
+                    {
+                        continue;
+                    }
                 }
 
                 var sleepFlow = await ExecuteTaskSleepPhaseAsync(ctx, token);
@@ -1329,7 +1308,6 @@ namespace SEM.Plugins
 
 
         #region Test Branch
-
         /// <summary>
         /// 测试方法
         /// </summary>
@@ -1340,22 +1318,26 @@ namespace SEM.Plugins
         private async Task RunTestBranchAsync(WorkerRunContext ctx, EntryPreparationResult entry, CancellationToken token)
         {
 
+            //await ScrollUpGesture(ctx);
 
-            var trace = await SwipeEmulator.SwipeOnceHumanAsync(
-                page: ctx.Page!,
-                client: ctx.CdpSession!,
-                direction: ScrollDirection.Up);
+            //await SynthesizedScrollGestureEmulator.PageScrollAsync(ctx.Page, ctx.CdpSession, 3, PageScrollDirection.Up);
 
-            if (trace != null)
-            {
-                SwipeTraceRenderer.DrawEachTraceGif(
-                    traces: new List<SwipeTrace>() { trace },
-                    outputDir: Path.Combine(AppContext.BaseDirectory, "swipe-traces"),
-                    width: ctx.Page!.ViewportSize!.Width,
-                    height: ctx.Page!.ViewportSize!.Height);
 
-         
-            }
+            //var trace = await SwipeEmulator.SwipeOnceHumanAsync(
+            //    page: ctx.Page!,
+            //    client: ctx.CdpSession!,
+            //    direction: ScrollDirection.Up);
+
+            //if (trace != null)
+            //{
+            //    SwipeTraceRenderer.DrawEachTraceGif(
+            //        traces: new List<SwipeTrace>() { trace },
+            //        outputDir: Path.Combine(AppContext.BaseDirectory, "swipe-traces"),
+            //        width: ctx.Page!.ViewportSize!.Width,
+            //        height: ctx.Page!.ViewportSize!.Height);
+
+
+            //}
 
 
 
@@ -1490,12 +1472,10 @@ namespace SEM.Plugins
             int clickRate = ctx.Config.TaskArgs.SelectToken("task.click_rate")!.Value<int>();
             ctx.JumpClick = false;
             ctx.PageTriggerClick = false;
-
             if (clickRate <= 0)
             {
                 return;
             }
-
             var ctr = await _aggregator.GetClickRatioAsync(ctx.Config.TaskId, clickRate);
             LogWriteLine($"点击比率:{(ctr * 100):N2}%");
             ctx.JumpClick = await _aggregator.CanClickthroughAsync(ctx.Config.TaskId, clickRate);
@@ -1525,7 +1505,12 @@ namespace SEM.Plugins
             foreach (var sponsored in candidates)
             {
                 token.ThrowIfCancellationRequested();
-                await SwipeEmulator.SwipeToElementAsync(ctx.Page!, ctx.CdpSession!, sponsored.IframeElement);
+                //await SwipeEmulator.SwipeToElementAsync(ctx.Page!, ctx.CdpSession!, sponsored.IframeElement);
+                await SynthesizedScrollGestureEmulator.SwipeToElementAsync(ctx.Page!, ctx.CdpSession!, sponsored.IframeElement);
+
+
+
+
                 await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
                 var box = await sponsored.IframeElement.BoundingBoxAsync();
                 if (box != null)
@@ -1537,10 +1522,13 @@ namespace SEM.Plugins
                     continue;
                 if (click.Navigated)
                 {
+                    if (!ctx.Page!.Url.StartsWith("https://m.baidu.com/"))
+                    {
+                        this.QTPExecuteClickthrough(ctx.Config.TaskId);
+                        LogWriteLine($"{this.Title}:ExecuteWorker:Clickthrough");
+                        ctx.PageTriggerClick = true;
 
-                    this.QTPExecuteClickthrough(ctx.Config.TaskId);
-                    LogWriteLine($"{this.Title}:ExecuteWorker:Clickthrough");
-                    ctx.PageTriggerClick = true;
+                    }
                     await Task.Delay(CommonHelper.RandomRange(2000, 3000), token);
                     return await HandleLandingPageAsync(ctx, token);
                 }

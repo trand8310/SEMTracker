@@ -20,22 +20,30 @@ namespace BDInsight.LandingPolicy
         {
             token.ThrowIfCancellationRequested();
             await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
-            var sponsoreds = ctx.Page!.Locator(".ec_ad_results div[class^='fc-'].c-container");
-            var count = await sponsoreds.CountAsync();
+            var items = ctx.Page!.Locator(".ec_ad_results div[class^='fc-'].c-container");
+            var count = await items.CountAsync();
             if (count > 0)
             {
                 var candidates = Enumerable.Range(0, count)
                 .OrderBy(_ => Guid.NewGuid())
-                .Select(i => sponsoreds.Nth(i))
+                .Select(i => items.Nth(i))
                 .ToList();
 
-                foreach (var sponsored in candidates)
+                foreach (var target in candidates)
                 {
                     token.ThrowIfCancellationRequested();
-                    await SwipeEmulator.SwipeToElementAsync(ctx.Page!, ctx.CdpSession!, sponsored);
-                    await sponsored.ScrollIntoViewIfNeededAsync();
+                    await SwipeEmulator.SwipeToElementAsync(ctx.Page!, ctx.CdpSession!, target);
                     await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
-                    var click = await _owner.ClickAndDetectNavigationAsync(ctx, sponsored, token);
+
+                    var text = await target.InnerTextAsync();
+                    var box = await target.BoundingBoxAsync();
+                    if (box != null)
+                        _owner.LogWriteLine($"触发广告位:{text}:({box.X},{box.Y},{box.Width},{box.Height})");
+                    else
+                        _owner.LogWriteLine($"触发广告位:{text}");
+
+
+                    var click = await _owner.ClickAndDetectNavigationAsync(ctx, target, token);
                     if (click.Navigated)
                     {
                         return StepFlow.Continue;
