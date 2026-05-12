@@ -181,7 +181,7 @@
             // linkLabel1
             // 
             linkLabel1.AutoSize = true;
-            linkLabel1.Location = new Point(482, 450);
+            linkLabel1.Location = new Point(555, 363);
             linkLabel1.Margin = new Padding(4, 0, 4, 0);
             linkLabel1.Name = "linkLabel1";
             linkLabel1.Size = new Size(69, 20);
@@ -193,7 +193,7 @@
             // checkBox_IsDetailLog
             // 
             checkBox_IsDetailLog.AutoSize = true;
-            checkBox_IsDetailLog.Location = new Point(313, 403);
+            checkBox_IsDetailLog.Location = new Point(295, 369);
             checkBox_IsDetailLog.Margin = new Padding(5);
             checkBox_IsDetailLog.Name = "checkBox_IsDetailLog";
             checkBox_IsDetailLog.Size = new Size(91, 24);
@@ -274,7 +274,7 @@
             // label110
             // 
             label110.AutoSize = true;
-            label110.Location = new Point(355, 144);
+            label110.Location = new Point(348, 141);
             label110.Margin = new Padding(5, 0, 5, 0);
             label110.Name = "label110";
             label110.Size = new Size(73, 20);
@@ -411,7 +411,7 @@
             // 
             groupBox6.Controls.Add(radioButton_UseLocalDev);
             groupBox6.Controls.Add(radioButton_UseSystemDev);
-            groupBox6.Location = new Point(482, 368);
+            groupBox6.Location = new Point(555, 281);
             groupBox6.Margin = new Padding(5);
             groupBox6.Name = "groupBox6";
             groupBox6.Padding = new Padding(5);
@@ -448,11 +448,11 @@
             // groupBox33
             // 
             groupBox33.Dock = DockStyle.Fill;
-            groupBox33.Location = new Point(0, 574);
+            groupBox33.Location = new Point(0, 464);
             groupBox33.Margin = new Padding(5, 4, 5, 4);
             groupBox33.Name = "groupBox33";
             groupBox33.Padding = new Padding(5, 4, 5, 4);
-            groupBox33.Size = new Size(1091, 187);
+            groupBox33.Size = new Size(1091, 297);
             groupBox33.TabIndex = 4;
             groupBox33.TabStop = false;
             groupBox33.Text = "日志";
@@ -522,7 +522,7 @@
             tabControl1.Margin = new Padding(3, 2, 3, 2);
             tabControl1.Name = "tabControl1";
             tabControl1.SelectedIndex = 0;
-            tabControl1.Size = new Size(1091, 574);
+            tabControl1.Size = new Size(1091, 464);
             tabControl1.TabIndex = 8;
             // 
             // tabPage1
@@ -588,7 +588,7 @@
             tabPage1.Margin = new Padding(3, 2, 3, 2);
             tabPage1.Name = "tabPage1";
             tabPage1.Padding = new Padding(3, 2, 3, 2);
-            tabPage1.Size = new Size(1083, 541);
+            tabPage1.Size = new Size(1083, 431);
             tabPage1.TabIndex = 0;
             tabPage1.Text = "信息";
             tabPage1.UseVisualStyleBackColor = true;
@@ -695,7 +695,7 @@
             // checkBox_PVsTriggerOne
             // 
             checkBox_PVsTriggerOne.AutoSize = true;
-            checkBox_PVsTriggerOne.Location = new Point(39, 461);
+            checkBox_PVsTriggerOne.Location = new Point(39, 397);
             checkBox_PVsTriggerOne.Margin = new Padding(5);
             checkBox_PVsTriggerOne.Name = "checkBox_PVsTriggerOne";
             checkBox_PVsTriggerOne.Size = new Size(202, 24);
@@ -737,7 +737,7 @@
             // checkBox_UVsTriggerOne
             // 
             checkBox_UVsTriggerOne.AutoSize = true;
-            checkBox_UVsTriggerOne.Location = new Point(39, 432);
+            checkBox_UVsTriggerOne.Location = new Point(39, 368);
             checkBox_UVsTriggerOne.Margin = new Padding(5);
             checkBox_UVsTriggerOne.Name = "checkBox_UVsTriggerOne";
             checkBox_UVsTriggerOne.Size = new Size(204, 24);
@@ -748,7 +748,7 @@
             // label38
             // 
             label38.AutoSize = true;
-            label38.Location = new Point(521, 270);
+            label38.Location = new Point(521, 239);
             label38.Margin = new Padding(5, 0, 5, 0);
             label38.Name = "label38";
             label38.Size = new Size(24, 20);
@@ -758,7 +758,7 @@
             // label39
             // 
             label39.AutoSize = true;
-            label39.Location = new Point(342, 270);
+            label39.Location = new Point(335, 237);
             label39.Margin = new Padding(5, 0, 5, 0);
             label39.Name = "label39";
             label39.Size = new Size(86, 20);
@@ -767,7 +767,7 @@
             // 
             // numericUpDown_IpTtl
             // 
-            numericUpDown_IpTtl.Location = new Point(429, 265);
+            numericUpDown_IpTtl.Location = new Point(429, 233);
             numericUpDown_IpTtl.Margin = new Padding(5, 4, 5, 4);
             numericUpDown_IpTtl.Maximum = new decimal(new int[] { 1800, 0, 0, 0 });
             numericUpDown_IpTtl.Name = "numericUpDown_IpTtl";
@@ -776,7 +776,7 @@
             // 
             // textBox_PVOverride
             // 
-            textBox_PVOverride.Location = new Point(429, 233);
+            textBox_PVOverride.Location = new Point(429, 201);
             textBox_PVOverride.Margin = new Padding(5, 4, 5, 4);
             textBox_PVOverride.Name = "textBox_PVOverride";
             textBox_PVOverride.Size = new Size(86, 27);
@@ -784,7 +784,7 @@
             // 
             // textBox_UVOverride
             // 
-            textBox_UVOverride.Location = new Point(429, 202);
+            textBox_UVOverride.Location = new Point(429, 169);
             textBox_UVOverride.Margin = new Padding(5, 4, 5, 4);
             textBox_UVOverride.Name = "textBox_UVOverride";
             textBox_UVOverride.Size = new Size(86, 27);
@@ -793,7 +793,7 @@
             // label33
             // 
             label33.AutoSize = true;
-            label33.Location = new Point(396, 236);
+            label33.Location = new Point(389, 206);
             label33.Margin = new Padding(5, 0, 5, 0);
             label33.Name = "label33";
             label33.Size = new Size(32, 20);
@@ -803,7 +803,7 @@
             // label31
             // 
             label31.AutoSize = true;
-            label31.Location = new Point(394, 207);
+            label31.Location = new Point(387, 174);
             label31.Margin = new Padding(5, 0, 5, 0);
             label31.Name = "label31";
             label31.Size = new Size(34, 20);
@@ -824,7 +824,7 @@
             // linkLabel2
             // 
             linkLabel2.AutoSize = true;
-            linkLabel2.Location = new Point(586, 450);
+            linkLabel2.Location = new Point(659, 363);
             linkLabel2.Margin = new Padding(4, 0, 4, 0);
             linkLabel2.Name = "linkLabel2";
             linkLabel2.Size = new Size(69, 20);

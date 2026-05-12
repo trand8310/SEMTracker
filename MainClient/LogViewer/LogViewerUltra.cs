@@ -20,6 +20,11 @@ namespace MainClient.LogViewer
         public int LineCount => CachedLines.Length == 0 ? 1 : CachedLines.Length;
     }
 
+    /// <summary>
+    /// 高吞吐日志查看控件。这里直接继承 <see cref="Control"/> 是有意的：
+    /// Control 已经是 WinForms 里最轻量的可绘制可视控件，适合自绘和虚拟滚动；
+    /// UserControl、Panel、ScrollableControl、RichTextBox/DataGridView 都会带来更多布局、子控件或文本引擎开销。
+    /// </summary>
     public sealed class LogViewerUltra : Control
     {
         private readonly List<LogItem> _logs = new();
@@ -28,6 +33,8 @@ namespace MainClient.LogViewer
         private readonly ConcurrentQueue<LogItem> _queue = new();
         private readonly object _lock = new();
 
+        // 保留一个独立 VScrollBar 作为滚动外壳；日志正文仍由 Control 自绘，
+        // 比继承 ScrollableControl 后让 AutoScroll 管理超大虚拟区域更可控。
         private readonly VScrollBar _scrollBar = new();
         private readonly Timer _timer = new();
 
@@ -45,6 +52,19 @@ namespace MainClient.LogViewer
         private bool _selecting;
 
         private bool _pendingInvalidate;
+        private bool _hasScrollableOverflow;
+        private bool _isMouseInside;
+        private bool _autoHideScrollBar = true;
+
+        private int ViewportHeight => Math.Max(1, ClientSize.Height);
+
+        private int ViewportWidth => Math.Max(1, ClientSize.Width - (_scrollBar.Visible ? _scrollBar.Width : 0));
+
+        private int TotalScrollablePixels => Math.Max(0, _totalLines * _lineHeight);
+
+        private int MaxScrollValue => Math.Max(0, TotalScrollablePixels - ViewportHeight);
+
+
 
         private sealed class LogLineIndex
         {
@@ -83,6 +103,24 @@ namespace MainClient.LogViewer
         /// </summary>
         public bool DropLowLevelLogsWhenQueueBusy { get; set; } = true;
 
+        /// <summary>
+        /// 内容可滚动时，仅在鼠标进入控件、控件获得焦点或正在选择文本时显示滚动条。
+        /// 隐藏滚动条时正文区域使用完整宽度，避免右侧长期留白。
+        /// </summary>
+        public bool AutoHideScrollBar
+        {
+            get => _autoHideScrollBar;
+            set
+            {
+                if (_autoHideScrollBar == value)
+                    return;
+
+                _autoHideScrollBar = value;
+                UpdateScrollBarVisibility();
+                SafeInvalidate();
+            }
+        }
+
         public LogViewerUltra()
         {
             DoubleBuffered = true;
@@ -100,11 +138,18 @@ namespace MainClient.LogViewer
 
             _scrollBar.Dock = DockStyle.Right;
             _scrollBar.Width = 16;
+            _scrollBar.Visible = false;
             _scrollBar.Scroll += (_, __) =>
             {
                 _autoScroll = IsNearBottom();
                 SafeInvalidate();
             };
+            _scrollBar.MouseEnter += (_, __) =>
+            {
+                _isMouseInside = true;
+                UpdateScrollBarVisibility();
+            };
+            _scrollBar.MouseLeave += (_, __) => UpdateMouseInsideFromCursor();
             Controls.Add(_scrollBar);
 
             _timer.Interval = 120;
@@ -113,6 +158,14 @@ namespace MainClient.LogViewer
 
             MouseWheel += LogViewer_MouseWheel;
             MouseDown += LogViewer_MouseDown;
+            MouseEnter += (_, __) =>
+            {
+                _isMouseInside = true;
+                UpdateScrollBarVisibility();
+            };
+            MouseLeave += (_, __) => UpdateMouseInsideFromCursor();
+            GotFocus += (_, __) => UpdateScrollBarVisibility();
+            LostFocus += (_, __) => UpdateScrollBarVisibility();
             MouseMove += LogViewer_MouseMove;
             MouseUp += LogViewer_MouseUp;
             KeyDown += LogViewer_KeyDown;
@@ -361,12 +414,7 @@ namespace MainClient.LogViewer
         private void LogViewer_MouseWheel(object? sender, MouseEventArgs e)
         {
             int delta = e.Delta > 0 ? -3 * _lineHeight : 3 * _lineHeight;
-            int newVal = Math.Clamp(_scrollBar.Value + delta, _scrollBar.Minimum, _scrollBar.Maximum);
-
-            _scrollBar.Value = newVal;
-            _autoScroll = IsNearBottom();
-
-            SafeInvalidate();
+            ScrollToValue(_scrollBar.Value + delta);
         }
 
         private void LogViewer_MouseDown(object? sender, MouseEventArgs e)
@@ -385,6 +433,12 @@ namespace MainClient.LogViewer
 
         private void LogViewer_MouseMove(object? sender, MouseEventArgs e)
         {
+            if (!_isMouseInside)
+            {
+                _isMouseInside = true;
+                UpdateScrollBarVisibility();
+            }
+
             if (!_selecting)
                 return;
 
@@ -395,6 +449,7 @@ namespace MainClient.LogViewer
         private void LogViewer_MouseUp(object? sender, MouseEventArgs e)
         {
             _selecting = false;
+            UpdateScrollBarVisibility();
         }
 
         private void LogViewer_KeyDown(object? sender, KeyEventArgs e)
@@ -436,29 +491,72 @@ namespace MainClient.LogViewer
                 totalLines = _totalLines;
             }
 
-            int viewHeight = Math.Max(1, ClientSize.Height);
+            int viewHeight = ViewportHeight;
             int totalPixels = Math.Max(0, totalLines * _lineHeight);
-            int maxValue = Math.Max(0, totalPixels - viewHeight);
+            int maxScrollValue = Math.Max(0, totalPixels - viewHeight);
+            bool hasOverflow = maxScrollValue > 0;
 
             _scrollBar.Minimum = 0;
-            _scrollBar.LargeChange = viewHeight;
-            _scrollBar.SmallChange = _lineHeight;
-            _scrollBar.Maximum = maxValue;
+            _scrollBar.SmallChange = Math.Max(1, _lineHeight);
+            _scrollBar.LargeChange = Math.Max(1, viewHeight);
 
-            if (_scrollBar.Value > maxValue)
-                _scrollBar.Value = maxValue;
+            // WinForms ScrollBar 的可到达最大 Value 是 Maximum - LargeChange + 1。
+            // 如果直接把 Maximum 设成 maxScrollValue，滚动条会过早禁用/无法拖到底。
+            _scrollBar.Maximum = hasOverflow
+                ? Math.Max(0, totalPixels - 1)
+                : 0;
+            _hasScrollableOverflow = hasOverflow;
+            _scrollBar.Enabled = hasOverflow;
+            UpdateScrollBarVisibility();
+
+            if (_scrollBar.Value > maxScrollValue)
+                _scrollBar.Value = maxScrollValue;
+        }
+
+        private void UpdateMouseInsideFromCursor()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            _isMouseInside = ClientRectangle.Contains(PointToClient(Cursor.Position));
+            UpdateScrollBarVisibility();
+        }
+
+        private void UpdateScrollBarVisibility()
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            bool shouldShow = _hasScrollableOverflow &&
+                              (!AutoHideScrollBar || _isMouseInside || Focused || _scrollBar.Focused || _selecting);
+
+            if (_scrollBar.Visible == shouldShow)
+                return;
+
+            _scrollBar.Visible = shouldShow;
+            SafeInvalidate();
         }
 
         private void ScrollToBottomSafe()
         {
-            int maxValue = Math.Max(_scrollBar.Minimum, _scrollBar.Maximum);
-            _scrollBar.Value = maxValue;
+            ScrollToValue(MaxScrollValue);
             _autoScroll = true;
+        }
+
+        private void ScrollToValue(int requestedValue)
+        {
+            int value = Math.Clamp(requestedValue, _scrollBar.Minimum, MaxScrollValue);
+
+            if (_scrollBar.Value != value)
+                _scrollBar.Value = value;
+
+            _autoScroll = IsNearBottom();
+            SafeInvalidate();
         }
 
         private bool IsNearBottom()
         {
-            return _scrollBar.Value >= Math.Max(_scrollBar.Minimum, _scrollBar.Maximum - _lineHeight);
+            return _scrollBar.Value >= Math.Max(_scrollBar.Minimum, MaxScrollValue - _lineHeight);
         }
 
         private int FindFirstVisibleLogIndex(List<LogLineIndex> lines, int targetLine)
@@ -513,7 +611,7 @@ namespace MainClient.LogViewer
                 int startPixel = scrollValue;
                 int viewTopLine = startPixel / _lineHeight;
                 int viewTopOffset = startPixel % _lineHeight;
-                int visibleLineCount = Math.Max(1, (Height / _lineHeight) + 2);
+                int visibleLineCount = Math.Max(1, (ViewportHeight / _lineHeight) + 2);
                 int lastVisibleLine = viewTopLine + visibleLineCount;
 
                 bool selectionEnabled = _selectStartLine != -1 && _selectEndLine != -1;
@@ -544,7 +642,7 @@ namespace MainClient.LogViewer
                             break;
 
                         int y = (currentLine - viewTopLine) * _lineHeight - viewTopOffset;
-                        if (y >= Height)
+                        if (y >= ViewportHeight)
                             break;
 
                         if (selectionEnabled && currentLine >= selMin && currentLine <= selMax)
@@ -553,7 +651,7 @@ namespace MainClient.LogViewer
                                 Brushes.LightBlue,
                                 0,
                                 y,
-                                Math.Max(0, Width - _scrollBar.Width),
+                                ViewportWidth,
                                 _lineHeight);
                         }
 
@@ -653,15 +751,28 @@ namespace MainClient.LogViewer
             if (_pendingInvalidate || IsDisposed || Disposing)
                 return;
 
+            if (!IsHandleCreated)
+            {
+                Invalidate();
+                return;
+            }
+
             _pendingInvalidate = true;
 
-            BeginInvoke(new Action(() =>
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    _pendingInvalidate = false;
+
+                    if (!IsDisposed && !Disposing)
+                        Invalidate();
+                }));
+            }
+            catch (InvalidOperationException)
             {
                 _pendingInvalidate = false;
-
-                if (!IsDisposed && !Disposing)
-                    Invalidate();
-            }));
+            }
         }
 
         protected override void Dispose(bool disposing)
