@@ -1261,14 +1261,8 @@ namespace SEM.Plugins
                      direction: PageScrollDirection.Up,
                      cancellationToken: token);
 
-                    await Task.Delay(CommonHelper.RandomRange(3120, 5678), token);
+                    await Task.Delay(CommonHelper.RandomRange(1234, 5678), token);
 
-                    await HumanScrollHelper.TouchPageLongScrollAsync(
-                      ctx.Page,
-                      ctx.CdpSession!,
-                      scrollCount: CommonHelper.RandomRange(1, 3),
-                      direction: PageScrollDirection.Down,
-                      cancellationToken: token);
 
                     var clickFlow = await TryExecuteJumpClickAsync(ctx, token);
                     if (clickFlow == StepFlow.EndTask)
@@ -1503,7 +1497,7 @@ namespace SEM.Plugins
             var sponsoredCount = sponsoreds.Count();
             if (sponsoredCount <= 0)
             {
-                return StepFlow.Continue;
+                return StepFlow.NextPv;
             }
 
             var candidates = Enumerable.Range(0, sponsoredCount)
@@ -1534,7 +1528,7 @@ namespace SEM.Plugins
                     return await HandleLandingPageAsync(ctx, token);
                 }
             }
-            return StepFlow.Continue;
+            return StepFlow.NextPv;
         }
 
 
@@ -3475,7 +3469,9 @@ namespace SEM.Plugins
                 {
                     LandingDispatcher = new LandingPageStrategyDispatcher(new ILandingPageStrategy[]
                     {
-                        new BaiduSearchPageStrategy(this),
+                        new BaiduMobPageStrategy(this),
+                        new BaiduAdenPageStrategy(this),
+
                         new UMobLandingPageStrategy(this),
                         new AiSiteLandingPageStrategy(this),
                         new AiStudyLandingPageStrategy(this),
