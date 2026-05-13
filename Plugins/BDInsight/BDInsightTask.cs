@@ -1254,6 +1254,8 @@ namespace SEM.Plugins
                     continue;
                 }
 
+               
+
                 if (ctx.Config.IsTest)
                 {
 
@@ -1308,6 +1310,11 @@ namespace SEM.Plugins
                     this.X5Secdata(ctx.Config.TaskId, 1, ctx.Page.Url);
                     return CompleteSuccess(ctx);
                 }
+
+                //if (!await DetectAdAsync(ctx, token))
+                //    continue;
+
+
 
                 LogWriteLine($"{this.Title}:ExecuteWorker: {((ctx.Config.PageLoadedDelayMs) / 1000.0):N2}");
                 await Task.Delay(ctx.Config.PageLoadedDelayMs, token);
@@ -1414,96 +1421,7 @@ namespace SEM.Plugins
         /// <returns></returns>
         private async Task RunTestBranchAsync(WorkerRunContext ctx, EntryPreparationResult entry, CancellationToken token)
         {
-
-            //await ScrollUpGesture(ctx);
-
-            //await SynthesizedScrollGestureEmulator.PageScrollAsync(ctx.Page, ctx.CdpSession, 3, PageScrollDirection.Up);
-
-
-            //var trace = await SwipeEmulator.SwipeOnceHumanAsync(
-            //    page: ctx.Page!,
-            //    client: ctx.CdpSession!,
-            //    direction: ScrollDirection.Up);
-
-            //if (trace != null)
-            //{
-            //    SwipeTraceRenderer.DrawEachTraceGif(
-            //        traces: new List<SwipeTrace>() { trace },
-            //        outputDir: Path.Combine(AppContext.BaseDirectory, "swipe-traces"),
-            //        width: ctx.Page!.ViewportSize!.Width,
-            //        height: ctx.Page!.ViewportSize!.Height);
-
-
-            //}
-
-
-
-            //await DecideJumpClickAsync(ctx, token);
-            // var adsOk = await DetectAndUploadAdWordsAsync(ctx, entry.QueryWord, token);
-
-            //var handleFlow = await HandleLandingPageAsync(ctx, token);
-            //ctx.JumpClick = true;
-            //ctx.PageTriggerClick = true;
-            //var sleepFlow = await ExecuteTaskSleepPhaseAsync(ctx, token);
-
-            //await Task.Delay(CommonHelper.RandomRange(5000, 8000));
-            //this.QTPExecuteSuccess(ctx.Config.TaskId);
-            //LogWriteLine($"{this.Title}:ExecuteWorker:Success");
-            //await Task.Delay(ctx.Config.SleepMs, token);
-
-
             await Task.Delay(TimeSpan.FromSeconds(150), token);
-            //var anchorCenten = ctx.Page!.Locator(".anchor-centen").Filter(new()
-            //{
-            //    Has = ctx.Page!.Locator("span").Filter(new()
-            //    {
-            //        HasTextString = "人在看"
-            //    })
-
-            //});
-            //try
-            //{
-            //    await anchorCenten.First.WaitForAsync(new LocatorWaitForOptions
-            //    {
-            //        State = WaitForSelectorState.Visible,
-            //        Timeout = 15000
-            //    });
-            //}
-            //catch (TimeoutException)
-            //{
-
-
-            //}
-
-            //await Task.Delay(CommonHelper.RandomRange(5000, 8000));
-            //var count = await anchorCenten.CountAsync();
-            //if (count > 0)
-            //{
-            //    for (int i = 0; i < count; i++)
-            //    {
-            //        var target = anchorCenten.Nth(CommonHelper.RandomRange(0, count));
-            //        try
-            //        {
-            //            await target.First.ScrollIntoViewIfNeededAsync();
-            //            var url = ctx.Page.Url;
-            //            var click = await ClickAndDetectNavigationAsync(ctx, target.First, token);
-            //            if (click.Navigated || !ctx.Page.Url.Equals(url))
-            //            {
-            //                this.QTPExecuteSuccess(ctx.Config.TaskId);
-            //                LogWriteLine($"{this.Title}:ExecuteWorker:Success");
-            //                await Task.Delay(ctx.Config.SleepMs, token);
-            //                break;
-            //            }
-            //        }
-            //        catch (Exception)
-            //        {
-
-
-            //        }
-
-            //    }
-            //}
-
         }
 
         #endregion
@@ -1661,61 +1579,6 @@ namespace SEM.Plugins
             catch { }
 
             return ClickResult.NoNavigation();
-        }
-
-
-        private async Task<ILocator?> PickSponsoredTargetAsync(ILocator sponsored, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-
-            var alis = sponsored.Locator("a.c-title,a[data-url^='http']");
-            var visible = await BDInsightHelper.GetVisibleElementsAsync(alis);
-            if (visible.Count == 0)
-                return null;
-
-            var urls = new List<(ILocator Locator, string Url)>();
-            foreach (var el in visible)
-            {
-                token.ThrowIfCancellationRequested();
-
-                var dataUrl = await el.GetAttributeAsync("data-url");
-                if (!string.IsNullOrWhiteSpace(dataUrl))
-                    urls.Add((el, dataUrl));
-            }
-
-            if (urls.Count == 0)
-                return null;
-
-            var exts = new[] { ".apk", ".zip", ".exe", ".7z", ".rar" };
-            var filtered = urls
-                .Where(x => !exts.Any(ext => x.Url.Contains(ext, StringComparison.OrdinalIgnoreCase)))
-                .OrderByDescending(x => x.Url.Length)
-                .ToList();
-
-            if (filtered.Count > 0)
-            {
-                var groups = filtered
-                       .GroupBy(x => new Uri(x.Url).Host, StringComparer.OrdinalIgnoreCase)
-                       .OrderByDescending(g => g.Count())
-                       .ToList();
-
-                foreach (var g in groups)
-                {
-                    var list = g.ToList();
-
-                    var uMob = list
-                        .Where(x => x.Url.Contains(".u-mob.", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    if (uMob.Count > 0)
-                        return uMob[Random.Shared.Next(uMob.Count)].Locator;
-
-                    if (list.Count > 0)
-                        return list[Random.Shared.Next(list.Count)].Locator;
-                }
-            }
-
-            return urls.OrderByDescending(x => x.Url.Length).First().Locator;
         }
 
         #endregion
