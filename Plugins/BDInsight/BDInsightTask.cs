@@ -462,9 +462,14 @@ namespace SEM.Plugins
             await ctx.CleanupLock.WaitAsync();
             try
             {
+                // Playwright 推荐的释放顺序：
+                // 1. 先释放/分离我们额外创建的 CDP session，避免后续关闭页面时还有 CDP 监听或命令挂着。
+                // 2. 再关闭显式创建的 BrowserContext，让页面 close 事件、HAR/video 等上下文产物有机会正常落盘。
+                // 3. 最后关闭 Browser；Playwright 文档说明 Browser.CloseAsync 更接近强制退出浏览器，且调用后 Browser 不可再用。
+                // IPlaywright 由 PlaywrightProvider 单例统一持有，不能在单个 worker 清理时 Dispose，否则会影响其它 worker。
                 var cdpManager = ctx.CdpManager;
                 if (cdpManager != null)
-                    await RunCleanupStepAsync(uniqueId, "CDP.DisposeAsync", () => cdpManager.DisposeAsync().AsTask());
+                    await RunCleanupStepAsync(uniqueId, "CDP.DetachAsync", () => cdpManager.DisposeAsync().AsTask());
 
                 var browserContext = ctx.Context;
                 if (browserContext != null)
@@ -475,7 +480,10 @@ namespace SEM.Plugins
                 {
                     if (browser.IsConnected)
                     {
-                        await RunCleanupStepAsync(uniqueId, "Browser.CloseAsync", () => browser.CloseAsync());
+                        await RunCleanupStepAsync(uniqueId, "Browser.CloseAsync", () => browser.CloseAsync(new BrowserCloseOptions
+                        {
+                            Reason = $"ForceCleanupSession:{uniqueId}"
+                        }));
                     }
                     else
                     {
