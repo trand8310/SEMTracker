@@ -1,4 +1,4 @@
-﻿
+
  
 namespace SEM.Plugins
 {
@@ -155,14 +155,7 @@ namespace SEM.Plugins
             try
             {
                 var session = await entry.LazySession.Value.ConfigureAwait(false);
-                if (session is IAsyncDisposable asyncDisposable)
-                {
-                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-                }
-                else if (session is IDisposable disposable)
-                {
-                    disposable.Dispose();
-                }
+                await session.DetachAsync().ConfigureAwait(false);
             }
             catch
             {
