@@ -5,7 +5,9 @@ using SEM.Plugins;
 
 namespace BDInsight.LandingPolicy
 {
-
+    /// <summary>
+    /// 百度手机站
+    /// </summary>
     public sealed class BaiduMobPageStrategy : ILandingPageStrategy
     {
         private readonly BDInsightTask _owner;

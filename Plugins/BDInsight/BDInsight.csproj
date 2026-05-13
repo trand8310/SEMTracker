@@ -6,11 +6,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="Swiper\SwipeTraceRenderer.cs" />
+  </ItemGroup>
+
 
   <ItemGroup>
     <Folder Include="Swiper\" />
   </ItemGroup>
-
 
   <ItemGroup>
     <ProjectReference Include="..\..\Libraries\SEM.Shared\SEM.Shared.csproj" />

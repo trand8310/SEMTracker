@@ -877,7 +877,7 @@ namespace MainClient
         private void ApplyOneTimeLocalPatch()
         {
 
-            string patchDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Data", "patches");
+            string patchDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "patches");
             if (!Directory.Exists(patchDir))
                 Directory.CreateDirectory(patchDir);
             string patchFile = Path.Combine(patchDir, "patch_page_loading_202604252047.done");
@@ -896,8 +896,6 @@ namespace MainClient
         {
 
             ApplyOneTimeLocalPatch();
-            if (_appSettings.MinFrequency == 0)
-                _appSettings.MinFrequency = 1;
             comboBox_QTPName.Text = _appSettings.QTPName;
             textBox_ProxyIpUrl.Text = _appSettings.ProxyIpUrl;
             textBox_TaskApiUrl.Text = _appSettings.TaskApiUrl;
@@ -925,9 +923,11 @@ namespace MainClient
             checkBox_UVsTriggerOne.Checked = _appSettings.UVsTriggerOne;
             checkBox_PVsTriggerOne.Checked = _appSettings.PVsTriggerOne;
             comboBox_KernelVersion.Text = _appSettings.KernelVersion;
-            checkBox_Incognito.Checked = _appSettings.Incognito;
             checkBox_IsTest.Checked = _appSettings.IsTest;
             checkBox_AutoUpdate.Checked = _appSettings.AutoUpdate;
+
+            checkBox_BlockImage.Checked = _appSettings.BlockImage;
+            checkBox_BlockMedia.Checked = _appSettings.BlockMedia;
 
 
         }
@@ -962,9 +962,10 @@ namespace MainClient
                 _appSettings.UVsTriggerOne = checkBox_UVsTriggerOne.Checked;
                 _appSettings.PVsTriggerOne = checkBox_PVsTriggerOne.Checked;
                 _appSettings.KernelVersion = comboBox_KernelVersion.Text;
-                _appSettings.Incognito = checkBox_Incognito.Checked;
                 _appSettings.IsTest = checkBox_IsTest.Checked;
                 _appSettings.AutoUpdate = checkBox_AutoUpdate.Checked;
+                _appSettings.BlockImage = checkBox_BlockImage.Checked;
+                _appSettings.BlockMedia = checkBox_BlockMedia.Checked;
                 UserConfigService.Save("AppSettings", _appSettings);
             }
 
@@ -1470,7 +1471,7 @@ namespace MainClient
                 if (_appSettings.IsRealIp)
                 {
                     ctx.RealIp =
-                        ipEntity.json["rip"]?.ToString()??
+                        ipEntity.json["rip"]?.ToString() ??
                         ipEntity.json["real_ip"]?.ToString() ??
                         ipEntity.json["realIp"]?.ToString() ??
                         string.Empty;
@@ -1647,18 +1648,10 @@ namespace MainClient
                 ["currentUV"] = uvIndex + 1,
                 ["pageLoadingTimeout"] = _appSettings.PageLoadingTimeout,
                 ["pageloadedDelay"] = _appSettings.PageloadedDelay,
-                ["hompageTrigger"] = _appSettings.HompageTrigger,
                 ["os"] = (int)ctx.OS,
-                ["isLocalAdWord"] = _appSettings.UseLocalWord,
-                ["priorityNon1688"] = _appSettings.PriorityNon1688,
                 ["pvsTriggerOne"] = _appSettings.PVsTriggerOne,
                 ["isTest"] = _appSettings.IsTest,
                 ["kernelVersion"] = _appSettings.KernelVersion,
-                ["incognito"] = _appSettings.Incognito,
-                ["wordname"] = _appSettings.WordName,
-                ["noTrigger1688"] = _appSettings.NoTrigger1688,
-                ["cleaningWords"] = _appSettings.CleaningWords,
-                ["notTriggerDownload"] = _appSettings.NotTriggerDownload
             };
 
             return args;
@@ -1714,7 +1707,7 @@ namespace MainClient
 
                 LogWriteLine(
                     $"提交任务:{ctx.TaskTitle}[{ctx.TaskId}_{consumerId}_s{consumerId}_{uvIndex + 1}],os={ctx.OS},proxy={ctx.ProxyServer ?? "False"},realIp={ctx.RealIp},uv={ctx.TotalUV}/{uvIndex + 1}");
-   
+
 
                 try
                 {
@@ -1877,19 +1870,6 @@ namespace MainClient
                 }
             }
 
-            if (_appSettings.UseLocalWord)
-            {
-                var filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", $"{_appSettings.WordName}.txt");
-                if (!File.Exists(filePath))
-                {
-                    await _adeHelper.DownloadWordFileByNameAsync(_appSettings.WordName);
-                }
-                if (!File.Exists(filePath))
-                {
-                    _logger.LogWarning("缺少本地词库: {filePath}", filePath);
-                    return;
-                }
-            }
 
 
             await _aggregator.StartAsync();

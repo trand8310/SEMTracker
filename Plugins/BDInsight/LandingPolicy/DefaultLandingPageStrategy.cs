@@ -25,7 +25,7 @@ namespace BDInsight.LandingPolicy
         {
             token.ThrowIfCancellationRequested();
             await Task.Delay(CommonHelper.RandomRange(800, 1200), token);
-            if (_owner._appSettings.p4psearch && _owner._appSettings.p4psearchRate > 0 && ctx.Page!.Url.Contains("m.1688.com"))
+            if (CommonHelper.Chance(0.2))
             {
                 await _owner.TryHandle1688RecommendWordsAsync(ctx, token);
             }

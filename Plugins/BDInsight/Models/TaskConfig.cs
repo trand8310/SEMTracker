@@ -15,7 +15,6 @@ namespace BDInsight.Models
         public int TaskId { get; set; }
         public string TaskUrl { get; set; } = "";
         public int SleepMs { get; set; }
-        public bool IsLocalAdWord { get; set; }
         public int PageLoadingTimeoutMs { get; set; }
         public int PageLoadedDelayMs { get; set; }
         public string UserAgent { get; set; } = "";

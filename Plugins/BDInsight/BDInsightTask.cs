@@ -518,7 +518,6 @@ namespace SEM.Plugins
                 IsProxyMode = isProxyMode,
                 ProxyServer = proxy_server ?? "",
                 SleepMs = ParseSleepMilliseconds(taskArgs),
-                IsLocalAdWord = taskArgs.SelectToken("isLocalAdWord")?.Value<bool>() ?? false,
                 PageLoadingTimeoutMs = taskArgs.SelectToken("pageLoadingTimeout")?.Value<int>() * 1000 ?? 30000,
                 PageLoadedDelayMs = ParsePageLoadedDelayMilliseconds(taskArgs),
                 UserAgent = taskArgs.SelectToken("dev.ua")!.Value<string>(),
@@ -609,8 +608,8 @@ namespace SEM.Plugins
 
                 //"--disable-extensions",
                 //"--disable-default-apps",
-                //"--no-first-run",
-                //"--no-default-browser-check",
+                "--no-first-run",
+                "--no-default-browser-check",
                 //"--disable-component-update",
                 //"--disable-background-networking",
                 //"--metrics-recording-only",
@@ -630,6 +629,7 @@ namespace SEM.Plugins
                 "--disable-http2-grease-settings",
                 "--hide-bad-flags",
                 "--hide-crashed-bubble",
+
                 $"--user-agent=\"{config.UserAgent}\"",
                 $"--window-size=\"{config.Sw + 16},{config.Sh + 96}\"",
                 "--window-position=0,0",
@@ -642,6 +642,17 @@ namespace SEM.Plugins
             {
 
             }
+
+            if (_appSettings.BlockImage || _appSettings.BlockMedia)
+            {
+                args.Add("--autoplay-policy=user-gesture-required");
+            }
+
+            if (_appSettings.BlockImage)
+            {
+                args.Add("--blink-settings=imagesEnabled=false");
+            }
+            //--autoplay-policy=user-gesture-required
 
             //proxyServer = string.Empty;
             //var isProxyMode = config.TaskArgs.SelectToken("isProxyMode")?.Value<bool>() ?? false;
@@ -788,9 +799,68 @@ namespace SEM.Plugins
                 throw new InvalidOperationException("Failed to initialize page for context.");
             await InitPageAsync(ctx, ctx.Page, token);
         }
+
+        private static bool IsBlockedMediaUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return false;
+            try
+            {
+                var uri = new Uri(url);
+                var path = uri.AbsolutePath.ToLowerInvariant();
+                return path.EndsWith(".mp4") ||
+                       path.EndsWith(".webm") ||
+                       path.EndsWith(".m3u8") ||
+                       path.EndsWith(".ts") ||
+                       path.EndsWith(".m4s") ||
+                       path.EndsWith(".mov") ||
+                       path.EndsWith(".avi") ||
+                       path.EndsWith(".flv") ||
+                       path.EndsWith(".mp3") ||
+                       path.EndsWith(".wav") ||
+                       path.EndsWith(".aac") ||
+                       path.EndsWith(".ogg");
+            }
+            catch
+            {
+                var cleanUrl = url.Split('?')[0].Split('#')[0].ToLowerInvariant();
+                return cleanUrl.EndsWith(".mp4") ||
+                       cleanUrl.EndsWith(".webm") ||
+                       cleanUrl.EndsWith(".m3u8") ||
+                       cleanUrl.EndsWith(".ts") ||
+                       cleanUrl.EndsWith(".m4s") ||
+                       cleanUrl.EndsWith(".mov") ||
+                       cleanUrl.EndsWith(".avi") ||
+                       cleanUrl.EndsWith(".flv") ||
+                       cleanUrl.EndsWith(".mp3") ||
+                       cleanUrl.EndsWith(".wav") ||
+                       cleanUrl.EndsWith(".aac") ||
+                       cleanUrl.EndsWith(".ogg");
+            }
+        }
+
+
         private async Task InitPageAsync(WorkerRunContext ctx, IPage page, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+
+            if (_appSettings.BlockImage && _appSettings.BlockMedia)
+            {
+                await page.RouteAsync("**/*", async route =>
+                {
+                    var request = route.Request;
+                    var url = request.Url;
+                    var type = request.ResourceType;
+                    if (type == "media" || IsBlockedMediaUrl(url))
+                    {
+                        await route.AbortAsync();
+                        return;
+                    }
+
+                    await route.ContinueAsync();
+                });
+            }
+
             await page.SetViewportSizeAsync(ctx.Config.Sw, ctx.Config.Sh);
             var cdpSession = await ctx.CdpManager!.GetOrCreateSessionAsync(page);
             await cdpSession.SendAsync("Page.enable");
@@ -961,40 +1031,7 @@ namespace SEM.Plugins
                 FirstPageUrl = ctx.Config.TaskUrl,
                 EndTask = false
             };
-
-            if (!result.FirstPageUrl.Contains("[QUERY]"))
-                return result;
-
-            var retry = await RetryPolicy.ExecuteAsync(
-                async ct =>
-                {
-                    ct.ThrowIfCancellationRequested();
-                    return await _adeHelper.GetWordAsync();
-                },
-                maxAttempts: 6,
-                successPredicate: q => !string.IsNullOrWhiteSpace(q),
-                onRetry: (attempt, ex) =>
-                {
-                    if (ex != null)
-                        LogWriteLine($"获取词条重试:{attempt}, ex={ex.Message}");
-                    else
-                        LogWriteLine($"获取词条重试:{attempt}");
-                },
-                delayMsFactory: _ => CommonHelper.RandomRange(300, 500),
-                token: token);
-
-            if (!retry.IsSuccess || string.IsNullOrWhiteSpace(retry.Value))
-            {
-                LogWriteLine("无法获取词条,请检查服务器");
-                await Task.Delay(TimeSpan.FromSeconds(30), token);
-                result.Success = false;
-                result.EndTask = true;
-                return result;
-            }
-
-            result.FirstPageUrl = result.FirstPageUrl.Replace("[QUERY]", retry.Value);
-            LogWriteLine($"{this.Title}:搜索词条{retry.Value}");
-            return result;
+            return await Task.FromResult(result);
         }
         private async Task<bool> NavigateToEntryAsync(WorkerRunContext ctx, string url, CancellationToken token)
         {
@@ -1629,9 +1666,7 @@ namespace SEM.Plugins
             if (metrics["dsp_p4psearch"] > 0)
                 LogWriteLine($"1688询价比率:{(metrics["dsp_p4psearch_click"] / (double)metrics["dsp_p4psearch"] * 100):N2}%");
 
-            bool canClick = _appSettings.p4psearchRate == 100
-                || metrics["dsp_p4psearch_click"] == 0
-                || ((metrics["dsp_p4psearch_click"] / (double)metrics["dsp_p4psearch"]) * 100 < _appSettings.p4psearchRate);
+            bool canClick = CommonHelper.Chance(0.2);
 
             if (!canClick)
                 return;
@@ -1750,9 +1785,6 @@ namespace SEM.Plugins
 
             if (url.Contains("m.p4psearch.1688.com"))
             {
-                if (_appSettings.Rfq1688 && _appSettings.Rfq1688Rate > 0)
-                    _aggregator.AddLocalMetric(ctx.Config.TaskId, "dsp_rfq1688");
-
                 await HumanScrollHelper.TouchPageLongScrollAsync(
                     ctx.Page!,
                     ctx.CdpSession!,
@@ -2646,13 +2678,9 @@ namespace SEM.Plugins
 
             try
             {
-                var metrics = _aggregator.GetLocalMetrics(ctx.Config.TaskId, "dsp_rfq1688", "dsp_rfq1688_click");
-                if (metrics["dsp_rfq1688"] > 0)
-                    LogWriteLine($"1688询价比率:{(metrics["dsp_rfq1688_click"] / (double)metrics["dsp_rfq1688"] * 100):N2}%");
 
-                bool canClick = _appSettings.Rfq1688 && (_appSettings.Rfq1688Rate == 100
-                    || metrics["dsp_rfq1688_click"] == 0
-                    || ((metrics["dsp_rfq1688_click"] / (double)metrics["dsp_rfq1688"]) * 100 < _appSettings.Rfq1688Rate));
+
+                bool canClick = CommonHelper.Chance(0.2);
 
                 if (!canClick)
                 {
