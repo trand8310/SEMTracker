@@ -16,8 +16,6 @@
     <PackageReference Include="Nager.PublicSuffix" Version="3.8.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Serilog" Version="4.3.1" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="4.0.0" />
-    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="3.0.0" />
     <PackageReference Include="System.Management" Version="10.0.8" />
   </ItemGroup>
 

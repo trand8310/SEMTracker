@@ -25,26 +25,12 @@
         public bool IsDetailLog { get; set; }
         public string PageloadedDelay { get; set; }
         public bool IsIpDuplicate { get; set; }
-        /// <summary>
-        /// 本地广告词
-        /// </summary>
-        public bool UseLocalWord { get; set; }
 
         public string UVOverride { get; set; }
         public string PVOverride { get; set; }
 
         public int IpTtl { get; set; }
-        /// <summary>
-        /// 
-        /// </summary>
-        public int HompageTrigger { get; set; }
 
-        public string WordName { get; set; }
-
-        /// <summary>
-        /// 非1688广告优先
-        /// </summary>
-        public bool PriorityNon1688 { get; set; }
         /// <summary>
         /// 多UV时,仅触发1个广告位
         /// </summary>
@@ -59,82 +45,7 @@
         /// 内核版本
         /// </summary>
         public string KernelVersion { get; set; }
-        /// <summary>
-        /// 隐身模式
-        /// </summary>
-        public bool Incognito { get; set; }
 
-
-        /// <summary>
-        /// 1688手机询价
-        /// </summary>
-        public bool Rfq1688 { get; set; }
-        /// <summary>
-        /// 1688 手机询价比例
-        /// </summary>
-        public int Rfq1688Rate { get; set; }
-
-
-
-        /// <summary>
-        /// p4psearch
-        /// </summary>
-        public bool p4psearch { get; set; }
-        /// <summary>
-        /// p4psearch比例
-        /// </summary>
-        public int p4psearchRate { get; set; }
-
-
-
-
-        /// <summary>
-        /// 不触发1688广告
-        /// </summary>
-        public bool NoTrigger1688 { get; set; }
-        /// <summary>
-        /// 清洗广告词
-        /// </summary>
-        public bool CleaningWords { get; set; }
-
-        /// <summary>
-        /// 是否使用动态词库
-        /// </summary>
-        public bool UseDynamicWord { get; set; }
-        /// <summary>
-        /// 动态词库类型
-        /// </summary>
-        public string WordType { get; set; }
-        /// <summary>
-        /// 动态态库,取词周期
-        /// </summary>
-        public int FetchRecently { get; set; }
-        /// <summary>
-        /// 取词频率
-        /// </summary>
-        public int MinFrequency { get; set; }
-
-
-        /// <summary>
-        /// 详情页不触发下载
-        /// </summary>
-        public bool NotTriggerDownload { get; set; }
-        //NotTriggerDownload
-
-
-        /// <summary>
-        /// 动态词库名称
-        /// </summary>
-        public string DynamicWordName { get; set; }
-
-        /// <summary>
-        /// 小时内去重
-        /// </summary>
-        public bool DistinctByHour { get; set; }
-
-        public string ExcludeWords { get; set; }
-
-        /// <summary>
         /// 是否测试
         /// </summary>
         public bool IsTest { get; set; }
@@ -144,6 +55,16 @@
         /// </summary>
         public bool AutoUpdate { get; set; }
 
+
+        /// <summary>
+        /// 禁止视频
+        /// </summary>
+        public bool BlockMedia { get; set; }
+
+        /// 禁止图片
+        /// </summary>
+        public bool BlockImage { get; set; }
+        
 
 
 
