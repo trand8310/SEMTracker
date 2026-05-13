@@ -35,7 +35,6 @@ namespace SEM.Plugins
         private readonly TaskStatsAggregator _aggregator;
         private readonly AdeHelper _adeHelper;
         private ChineseNameGenerator _nameGenerator;
-        private readonly IRootDomainService _domainService;
         private readonly IPlaywrightProvider _playwrightProvider;
 
         /// <summary>
@@ -48,14 +47,12 @@ namespace SEM.Plugins
         /// <param name="nameGenerator"></param>
         /// <param name="appSettings"></param>
         public BDInsightTask(
-            IRootDomainService domainService,
             IPlaywrightProvider playwrightProvider,
             TaskStatsAggregator aggregator,
             AdeHelper adeHelper,
             ChineseNameGenerator nameGenerator,
             AppSettings appSettings) : base(appSettings)
         {
-            _domainService = domainService;
             _playwrightProvider = playwrightProvider;
             _aggregator = aggregator;
             _adeHelper = adeHelper;

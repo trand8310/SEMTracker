@@ -40,7 +40,6 @@ namespace MainClient
         private readonly AdeHelper _adeHelper;
         private readonly FileUpdater _fileUpdater;
         private readonly ProxyTester _ipTester;
-        private readonly IRootDomainService _domainService;
         private readonly IPlaywrightProvider _playwrightProvider;
         private readonly TaskStatsAggregator _aggregator;
         private readonly ChineseNameGenerator _nameGenerator;
@@ -657,7 +656,6 @@ namespace MainClient
 
 
         public MainForm(
-            IRootDomainService domainService,
             IPlaywrightProvider playwrightProvider,
             TaskStatsAggregator aggregator,
             AdeHelper adeHelper,
@@ -670,7 +668,6 @@ namespace MainClient
             ILogger<MainForm> logger)
         {
             InitializeComponent();
-            this._domainService = domainService;
             this._playwrightProvider = playwrightProvider;
             this._aggregator = aggregator;
             this._adeHelper = adeHelper;
@@ -1681,7 +1678,7 @@ namespace MainClient
 
             var pluginInstance = Activator.CreateInstance(
                 plugin.type,
-                new object[] { _domainService, _playwrightProvider, _aggregator, _adeHelper, _nameGenerator, _appSettings });
+                new object[] {_playwrightProvider, _aggregator, _adeHelper, _nameGenerator, _appSettings });
 
             if (pluginInstance is not IQTPService pluginService)
             {

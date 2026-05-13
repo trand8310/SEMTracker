@@ -106,7 +106,6 @@ namespace MainClient
 
                     services.AddSingleton(appSettings);
                     services.AddHttpClient();
-                    services.AddSingleton<IRootDomainService, RootDomainService>();
                     services.AddSingleton<IPlaywrightProvider, PlaywrightProvider>();
                     services.AddSingleton<FileUpdater>(sp =>
                     {
@@ -132,12 +131,7 @@ namespace MainClient
                 .UseSerilog();
 
             var host = builder.Build();
-            //启动时初始化一级域规则
-            var rootDomainService = host.Services.GetRequiredService<IRootDomainService>();
-            rootDomainService.InitializeAsync().GetAwaiter().GetResult();
- 
             StartErrorDialogGuard();
-
             Application.ApplicationExit += async (sender, e) =>
             {
                 StopErrorDialogGuard();
