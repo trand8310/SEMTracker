@@ -14,7 +14,6 @@ namespace MainClient
             Message = message;
         }
     }
-
     public class FileVersionInfo
     {
         public string File { get; set; } = string.Empty;
@@ -22,23 +21,18 @@ namespace MainClient
         public long Size { get; set; }
         public string Text => Path.GetFileNameWithoutExtension(File).Replace("BDInsight_", "");
     }
-
     public class VersionResponse
     {
         public bool Success { get; set; }
         public string Runtime_Version { get; set; } = string.Empty;
         public List<FileVersionInfo> Data { get; set; } = new();
     }
-
-
     public class TResponse<T>
     {
         public bool Success { get; set; }
         public string Runtime_Version { get; set; } = string.Empty;
         public List<T> Data { get; set; } = new();
     }
-
-
     public class FileUpdater
     {
         private readonly HttpClient _httpClient;
