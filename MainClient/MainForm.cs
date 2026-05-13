@@ -1,4 +1,4 @@
-﻿using MainClient.Common;
+using MainClient.Common;
 using MainClient.Logging;
 using MainClient.LogViewer;
 using MainClient.Models;
@@ -1741,30 +1741,35 @@ namespace MainClient
             }
             finally
             {
-                if (logHandler != null) pluginService.OnLogEventHandler -= logHandler;
-                if (stateChangedHandler != null) pluginService.OnStateChangedEventHandler -= stateChangedHandler;
-
-                if (pluginService is IAsyncDisposable asyncDisposable)
+                try
                 {
-                    try
+                    if (pluginService is IAsyncDisposable asyncDisposable)
                     {
-                        await asyncDisposable.DisposeAsync();
+                        try
+                        {
+                            await asyncDisposable.DisposeAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Async dispose plugin failed. uniqueId={UniqueId}", uniqueId);
+                        }
                     }
-                    catch (Exception ex)
+                    else if (pluginService is IDisposable disposable)
                     {
-                        _logger.LogWarning(ex, "Async dispose plugin failed. uniqueId={UniqueId}", uniqueId);
+                        try
+                        {
+                            disposable.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Dispose plugin failed. uniqueId={UniqueId}", uniqueId);
+                        }
                     }
                 }
-                else if (pluginService is IDisposable disposable)
+                finally
                 {
-                    try
-                    {
-                        disposable.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Dispose plugin failed. uniqueId={UniqueId}", uniqueId);
-                    }
+                    if (logHandler != null) pluginService.OnLogEventHandler -= logHandler;
+                    if (stateChangedHandler != null) pluginService.OnStateChangedEventHandler -= stateChangedHandler;
                 }
             }
         }

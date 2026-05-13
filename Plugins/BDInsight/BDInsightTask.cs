@@ -30,6 +30,7 @@ namespace SEM.Plugins
             };
         }
         private readonly ConcurrentDictionary<string, WorkerRunContext> _activeContexts = new();
+        private int _disposeStarted;
         public override string Title => "百度搜索";
         private readonly TaskStatsAggregator _aggregator;
         private readonly AdeHelper _adeHelper;
@@ -416,36 +417,79 @@ namespace SEM.Plugins
 
             return result;
         }
+        private static readonly TimeSpan CleanupStepTimeout = TimeSpan.FromSeconds(8);
+
+        private async Task RunCleanupStepAsync(string uniqueId, string stepName, Func<Task> cleanupAction)
+        {
+            var sw = Stopwatch.StartNew();
+            Task cleanupTask;
+            try
+            {
+                cleanupTask = cleanupAction();
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 启动异常: {ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+
+            var timeoutTask = Task.Delay(CleanupStepTimeout);
+            if (await Task.WhenAny(cleanupTask, timeoutTask) != cleanupTask)
+            {
+                LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 超过 {CleanupStepTimeout.TotalSeconds:N0}s 仍未完成，跳过等待，避免清理流程卡死");
+                _ = cleanupTask.ContinueWith(t =>
+                {
+                    LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 超时后最终异常: {t.Exception?.GetBaseException().GetType().Name}: {t.Exception?.GetBaseException().Message}");
+                }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                return;
+            }
+
+            try
+            {
+                await cleanupTask;
+                sw.Stop();
+                if (sw.Elapsed > TimeSpan.FromSeconds(1))
+                    LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 完成，耗时 {sw.Elapsed.TotalSeconds:N2}s");
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 异常，耗时 {sw.Elapsed.TotalSeconds:N2}s: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         private async Task ForceCleanupSessionAsync(WorkerRunContext ctx, string uniqueId)
         {
             await ctx.CleanupLock.WaitAsync();
             try
             {
-                try
-                {
-                    if (ctx.CdpManager != null)
-                        await ctx.CdpManager.DisposeAsync();
-                }
-                catch
-                {
-                }
+                // Playwright 推荐的释放顺序：
+                // 1. 先释放/分离我们额外创建的 CDP session，避免后续关闭页面时还有 CDP 监听或命令挂着。
+                // 2. 再关闭显式创建的 BrowserContext，让页面 close 事件、HAR/video 等上下文产物有机会正常落盘。
+                // 3. 最后关闭 Browser；Playwright 文档说明 Browser.CloseAsync 更接近强制退出浏览器，且调用后 Browser 不可再用。
+                // IPlaywright 由 PlaywrightProvider 单例统一持有，不能在单个 worker 清理时 Dispose，否则会影响其它 worker。
+                var cdpManager = ctx.CdpManager;
+                if (cdpManager != null)
+                    await RunCleanupStepAsync(uniqueId, "CDP.DetachAsync", () => cdpManager.DisposeAsync().AsTask());
 
-                try
-                {
-                    if (ctx.Context != null)
-                        await ctx.Context.CloseAsync();
-                }
-                catch
-                {
-                }
+                var browserContext = ctx.Context;
+                if (browserContext != null)
+                    await RunCleanupStepAsync(uniqueId, "Context.CloseAsync", () => browserContext.CloseAsync());
 
-                try
+                var browser = ctx.Browser;
+                if (browser != null)
                 {
-                    if (ctx.Browser != null && ctx.Browser.IsConnected)
-                        await ctx.Browser.CloseAsync();
-                }
-                catch
-                {
+                    if (browser.IsConnected)
+                    {
+                        await RunCleanupStepAsync(uniqueId, "Browser.CloseAsync", () => browser.CloseAsync(new BrowserCloseOptions
+                        {
+                            Reason = $"ForceCleanupSession:{uniqueId}"
+                        }));
+                    }
+                    else
+                    {
+                        LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:Browser.CloseAsync 跳过，Browser 已断开连接");
+                    }
                 }
 
                 ctx.CdpManager = null;
@@ -477,6 +521,44 @@ namespace SEM.Plugins
 
             token.ThrowIfCancellationRequested();
             await ForceCleanupSessionAsync(ctx, uniqueId);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposeStarted, 1) == 1)
+                return;
+
+            try
+            {
+                foreach (var pair in _activeContexts.ToArray())
+                {
+                    var activeUniqueId = pair.Key;
+                    var activeContext = pair.Value;
+
+                    try
+                    {
+                        if (!activeContext.Config.LinkedCts.IsCancellationRequested)
+                            await activeContext.Config.LinkedCts.CancelAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogWriteLine($"{this.Title}:DisposeAsync:{activeUniqueId}:取消任务异常: {ex.GetType().Name}: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        await ForceCleanupSessionAsync(activeContext, activeUniqueId);
+                    }
+                    finally
+                    {
+                        _activeContexts.TryRemove(activeUniqueId, out _);
+                    }
+                }
+            }
+            finally
+            {
+                await base.DisposeAsync();
+            }
         }
         private TaskConfig BuildTaskConfig(string uniqueId, JObject taskArgs, CancellationTokenSource linkedCts)
         {
@@ -3609,7 +3691,14 @@ namespace SEM.Plugins
 
                 if (ctx != null)
                 {
-                    await ForceCleanupSessionAsync(ctx, uniqueId);
+                    try
+                    {
+                        await ForceCleanupSessionAsync(ctx, uniqueId);
+                    }
+                    finally
+                    {
+                        _activeContexts.TryRemove(uniqueId, out _);
+                    }
                 }
             }
         }
