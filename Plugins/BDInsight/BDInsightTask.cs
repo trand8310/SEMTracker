@@ -416,36 +416,71 @@ namespace SEM.Plugins
 
             return result;
         }
+        private static readonly TimeSpan CleanupStepTimeout = TimeSpan.FromSeconds(8);
+
+        private async Task RunCleanupStepAsync(string uniqueId, string stepName, Func<Task> cleanupAction)
+        {
+            var sw = Stopwatch.StartNew();
+            Task cleanupTask;
+            try
+            {
+                cleanupTask = cleanupAction();
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 启动异常: {ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+
+            var timeoutTask = Task.Delay(CleanupStepTimeout);
+            if (await Task.WhenAny(cleanupTask, timeoutTask) != cleanupTask)
+            {
+                LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 超过 {CleanupStepTimeout.TotalSeconds:N0}s 仍未完成，跳过等待，避免清理流程卡死");
+                _ = cleanupTask.ContinueWith(t =>
+                {
+                    LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 超时后最终异常: {t.Exception?.GetBaseException().GetType().Name}: {t.Exception?.GetBaseException().Message}");
+                }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                return;
+            }
+
+            try
+            {
+                await cleanupTask;
+                sw.Stop();
+                if (sw.Elapsed > TimeSpan.FromSeconds(1))
+                    LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 完成，耗时 {sw.Elapsed.TotalSeconds:N2}s");
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:{stepName} 异常，耗时 {sw.Elapsed.TotalSeconds:N2}s: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         private async Task ForceCleanupSessionAsync(WorkerRunContext ctx, string uniqueId)
         {
             await ctx.CleanupLock.WaitAsync();
             try
             {
-                try
-                {
-                    if (ctx.CdpManager != null)
-                        await ctx.CdpManager.DisposeAsync();
-                }
-                catch
-                {
-                }
+                var cdpManager = ctx.CdpManager;
+                if (cdpManager != null)
+                    await RunCleanupStepAsync(uniqueId, "CDP.DisposeAsync", () => cdpManager.DisposeAsync().AsTask());
 
-                try
-                {
-                    if (ctx.Context != null)
-                        await ctx.Context.CloseAsync();
-                }
-                catch
-                {
-                }
+                var browserContext = ctx.Context;
+                if (browserContext != null)
+                    await RunCleanupStepAsync(uniqueId, "Context.CloseAsync", () => browserContext.CloseAsync());
 
-                try
+                var browser = ctx.Browser;
+                if (browser != null)
                 {
-                    if (ctx.Browser != null && ctx.Browser.IsConnected)
-                        await ctx.Browser.CloseAsync();
-                }
-                catch
-                {
+                    if (browser.IsConnected)
+                    {
+                        await RunCleanupStepAsync(uniqueId, "Browser.CloseAsync", () => browser.CloseAsync());
+                    }
+                    else
+                    {
+                        LogWriteLine($"{this.Title}:ForceCleanup:{uniqueId}:Browser.CloseAsync 跳过，Browser 已断开连接");
+                    }
                 }
 
                 ctx.CdpManager = null;
