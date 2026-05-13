@@ -220,26 +220,34 @@ namespace MainClient
         private void LoadQTPPlugins()
         {
             DirectoryInfo d = new DirectoryInfo(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins"));
-            d.GetFiles().ToList().ForEach(x =>
-             {
-                 var assembly = System.Reflection.Assembly.LoadFile(x.FullName);
-                 if (assembly != null)
-                 {
-                     var typeName = System.IO.Path.GetFileNameWithoutExtension(x.FullName);
-                     Type type = assembly.GetType($"SEM.Plugins.{typeName}Task");
-                     if (type != null)
-                     {
-                         System.Reflection.MethodInfo methodInfo = type.GetMethod("GetInfo");
-                         object result = methodInfo.Invoke(null, null);
-                         if (result != null && result is SEMPlugin)
-                         {
-                             var plugin = (SEMPlugin)result;
-                             plugin.type = type;
-                             allPlugins.Add(plugin.Name, plugin);
-                         }
-                     }
-                 }
-             });
+            var files = d.GetFiles();
+            _logger.LogInformation("StartupTiming MainForm.LoadQTPPlugins found {PluginFileCount} plugin files in {PluginDirectory}",
+                files.Length, d.FullName);
+
+            foreach (var x in files)
+            {
+                var pluginStep = Stopwatch.StartNew();
+                var assembly = System.Reflection.Assembly.LoadFile(x.FullName);
+                if (assembly != null)
+                {
+                    var typeName = System.IO.Path.GetFileNameWithoutExtension(x.FullName);
+                    Type type = assembly.GetType($"SEM.Plugins.{typeName}Task");
+                    if (type != null)
+                    {
+                        System.Reflection.MethodInfo methodInfo = type.GetMethod("GetInfo");
+                        object result = methodInfo.Invoke(null, null);
+                        if (result != null && result is SEMPlugin)
+                        {
+                            var plugin = (SEMPlugin)result;
+                            plugin.type = type;
+                            allPlugins.Add(plugin.Name, plugin);
+                        }
+                    }
+                }
+
+                _logger.LogInformation("StartupTiming MainForm.LoadQTPPlugins file {PluginFile} completed in {ElapsedMs} ms",
+                    x.Name, pluginStep.ElapsedMilliseconds);
+            }
         }
 
         public async Task<List<FileVersionInfo>> GetLatestFileWithVersionAsync()
@@ -669,7 +677,13 @@ namespace MainClient
             IHttpClientFactory httpClientFactory,
             ILogger<MainForm> logger)
         {
+            var startupTotal = Stopwatch.StartNew();
+            var startupStep = Stopwatch.StartNew();
+
             InitializeComponent();
+            var initializeComponentElapsedMs = startupStep.ElapsedMilliseconds;
+            startupStep.Restart();
+
             this._domainService = domainService;
             this._playwrightProvider = playwrightProvider;
             this._aggregator = aggregator;
@@ -681,22 +695,48 @@ namespace MainClient
             this._appSettings = appSettings;
             this._logger = logger;
             this._httpClientFactory = httpClientFactory;
+
+            _logger.LogInformation("StartupTiming MainForm.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                "InitializeComponent", initializeComponentElapsedMs, startupTotal.ElapsedMilliseconds);
+            LogStartupTiming("AssignDependencies", startupTotal, startupStep);
+
             this.Text += $"{AppConsts.AppVersion}";
+            LogStartupTiming("SetWindowTitle", startupTotal, startupStep);
+
             LoadQTPPlugins();
+            LogStartupTiming("LoadQTPPlugins", startupTotal, startupStep);
+
             foreach (var p in allPlugins)
             {
                 comboBox_QTPName.Items.Add(p.Key);
             }
+            LogStartupTiming("BindPluginComboBox", startupTotal, startupStep);
+
             InitKernelVersion();
+            LogStartupTiming("InitKernelVersion", startupTotal, startupStep);
+
             LoadAppSetting();
+            LogStartupTiming("LoadAppSetting", startupTotal, startupStep);
+
             #region 数据初始化
             foreach (var item in new ManagementObjectSearcher("Select * from Win32_ComputerSystem").Get())
             {
                 toolStripStatusLabel1.Text = $"CPU:{item["NumberOfLogicalProcessors"]}";
             }
+            LogStartupTiming("QueryComputerSystemByWmi", startupTotal, startupStep);
             #endregion
 
+            _logger.LogInformation("StartupTiming MainForm.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                "ConstructorComplete", startupStep.ElapsedMilliseconds, startupTotal.ElapsedMilliseconds);
+
             //InitWsClient();
+        }
+
+        private void LogStartupTiming(string step, Stopwatch total, Stopwatch currentStep)
+        {
+            _logger.LogInformation("StartupTiming MainForm.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                step, currentStep.ElapsedMilliseconds, total.ElapsedMilliseconds);
+            currentStep.Restart();
         }
         public async Task InitGlobalStatus()
         {
@@ -767,13 +807,23 @@ namespace MainClient
         }
         private void MainForm_Load(object sender, EventArgs e)
         {
+            var loadTotal = Stopwatch.StartNew();
+            var loadStep = Stopwatch.StartNew();
+
             StartLogConsumer();
+            LogStartupTiming("StartLogConsumer", loadTotal, loadStep);
             _logger.LogInformation("应用已启动");
 
             Task.Run(async () =>
             {
+                var backgroundTotal = Stopwatch.StartNew();
+                var backgroundStep = Stopwatch.StartNew();
+
                 CommonHelper.ClearLocalChromeProcesses();
+                LogStartupTiming("ClearLocalChromeProcesses", backgroundTotal, backgroundStep);
+
                 var latestFileList = await GetLatestFileWithVersionAsync();
+                LogStartupTiming("GetLatestFileWithVersionAsync", backgroundTotal, backgroundStep);
                 if (latestFileList.Count > 0)
                 {
                     this.InvokeOnUiThreadIfRequired(() =>
@@ -788,23 +838,30 @@ namespace MainClient
                 try
                 {
                     await InitBrowserVersionListAsync();
-                    await InitGlobalStatus();
-                    ClearLocalCacheFile();
-                }
-                catch (Exception)
-                {
+                    LogStartupTiming("InitBrowserVersionListAsync", backgroundTotal, backgroundStep);
 
+                    await InitGlobalStatus();
+                    LogStartupTiming("InitGlobalStatus", backgroundTotal, backgroundStep);
+
+                    ClearLocalCacheFile();
+                    LogStartupTiming("ClearLocalCacheFile", backgroundTotal, backgroundStep);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Startup background initialization failed.");
                 }
                 var isRestart = System.Environment.GetCommandLineArgs().Any(p => p.StartsWith("restart"));
                 if (isRestart)
                 {
                     TriggerStartTask();
                 }
+                LogStartupTiming("CheckRestartAutomation", backgroundTotal, backgroundStep);
 
                 if (latestFileList.Count > 0)
                 {
                     await HandleStartupAutomationAsync(latestFileList.FirstOrDefault());
                 }
+                LogStartupTiming("HandleStartupAutomationAsync", backgroundTotal, backgroundStep);
 
                 this.InvokeOnUiThreadIfRequired(() =>
                 {
@@ -868,6 +925,9 @@ namespace MainClient
                     #endregion
 
                 });
+                LogStartupTiming("RegisterSettingChangeHandlers", backgroundTotal, backgroundStep);
+                _logger.LogInformation("StartupTiming MainForm.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                    "LoadBackgroundComplete", backgroundStep.ElapsedMilliseconds, backgroundTotal.ElapsedMilliseconds);
             });
 
         }

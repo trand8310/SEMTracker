@@ -1,4 +1,4 @@
-﻿using MainClient.Common;
+using MainClient.Common;
 using MainClient.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,6 +29,8 @@ namespace MainClient
         [STAThread]
         static void Main()
         {
+            var startupTotal = Stopwatch.StartNew();
+            var startupStep = Stopwatch.StartNew();
 
             ApplicationConfiguration.Initialize();
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -51,7 +53,8 @@ namespace MainClient
                 Log.Error(e.Exception, "TaskScheduler UnobservedTaskException");
                 e.SetObserved();
             };
-
+            var preLoggerElapsedMs = startupStep.ElapsedMilliseconds;
+            startupStep.Restart();
 
             var appSettings = new AppSettings();
             UserConfigService.Init(appSettings);
@@ -87,6 +90,9 @@ namespace MainClient
                 .WriteTo.Sink<UiLogSink>()
                 .CreateLogger();
 
+            Log.Information("StartupTiming Program.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                "ApplicationBootstrapBeforeLogger", preLoggerElapsedMs, startupTotal.ElapsedMilliseconds);
+            LogStartupTiming("ConfigurationAndLogger", startupTotal, startupStep);
 
             var baseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             var parentDir = Directory.GetParent(baseDir)?.FullName ?? AppDomain.CurrentDomain.BaseDirectory;
@@ -95,6 +101,7 @@ namespace MainClient
             {
                 Directory.CreateDirectory(packagesDir);
             }
+            LogStartupTiming("EnsurePackagesDirectory", startupTotal, startupStep);
 
             var builder = new HostBuilder()
                 .ConfigureServices((context, services) =>
@@ -130,13 +137,19 @@ namespace MainClient
                     logging.ClearProviders();
                 })
                 .UseSerilog();
+            LogStartupTiming("ConfigureHostBuilder", startupTotal, startupStep);
 
             var host = builder.Build();
+            LogStartupTiming("BuildHost", startupTotal, startupStep);
+
             //启动时初始化一级域规则
             var rootDomainService = host.Services.GetRequiredService<IRootDomainService>();
+            LogStartupTiming("ResolveRootDomainService", startupTotal, startupStep);
             rootDomainService.InitializeAsync().GetAwaiter().GetResult();
+            LogStartupTiming("InitializeRootDomainService", startupTotal, startupStep);
  
             StartErrorDialogGuard();
+            LogStartupTiming("StartErrorDialogGuard", startupTotal, startupStep);
 
             Application.ApplicationExit += async (sender, e) =>
             {
@@ -154,7 +167,19 @@ namespace MainClient
                 }
             };
 
-            Application.Run(host.Services.GetRequiredService<MainForm>());
+            var mainForm = host.Services.GetRequiredService<MainForm>();
+            LogStartupTiming("ResolveMainForm", startupTotal, startupStep);
+            Log.Information("StartupTiming Program.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                "BeforeApplicationRun", startupStep.ElapsedMilliseconds, startupTotal.ElapsedMilliseconds);
+
+            Application.Run(mainForm);
+        }
+
+        private static void LogStartupTiming(string step, Stopwatch total, Stopwatch currentStep)
+        {
+            Log.Information("StartupTiming Program.{Step} completed in {ElapsedMs} ms (total {TotalMs} ms)",
+                step, currentStep.ElapsedMilliseconds, total.ElapsedMilliseconds);
+            currentStep.Restart();
         }
 
         static void RestartApplication()
