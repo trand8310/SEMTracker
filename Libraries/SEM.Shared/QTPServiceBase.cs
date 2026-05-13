@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using SEM.Infrastructure;
 using SEM.Plugins;
@@ -6,7 +6,7 @@ using SEM.Plugins;
 
 namespace SEM
 {
-    public abstract class QTPServiceBase : IQTPService
+    public abstract class QTPServiceBase : IQTPService, IAsyncDisposable
     {
         public abstract string Title { get; }
         public abstract Task<(bool, bool, int)> ExecuteWorkerAsync(string uniqueId, JObject taskArgs, CancellationToken token);
@@ -21,6 +21,14 @@ namespace SEM
             this._appSettings = appSettings;
         }
 
+
+        public virtual ValueTask DisposeAsync()
+        {
+            OnLogEventHandler = null;
+            OnStateChangedEventHandler = null;
+            OnTaskAdWordEventHandler = null;
+            return ValueTask.CompletedTask;
+        }
 
         public virtual void LogWriteLine(string message, LogLevel level = LogLevel.Information)
         {

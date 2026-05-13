@@ -30,6 +30,7 @@ namespace SEM.Plugins
             };
         }
         private readonly ConcurrentDictionary<string, WorkerRunContext> _activeContexts = new();
+        private int _disposeStarted;
         public override string Title => "百度搜索";
         private readonly TaskStatsAggregator _aggregator;
         private readonly AdeHelper _adeHelper;
@@ -520,6 +521,44 @@ namespace SEM.Plugins
 
             token.ThrowIfCancellationRequested();
             await ForceCleanupSessionAsync(ctx, uniqueId);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposeStarted, 1) == 1)
+                return;
+
+            try
+            {
+                foreach (var pair in _activeContexts.ToArray())
+                {
+                    var activeUniqueId = pair.Key;
+                    var activeContext = pair.Value;
+
+                    try
+                    {
+                        if (!activeContext.Config.LinkedCts.IsCancellationRequested)
+                            await activeContext.Config.LinkedCts.CancelAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogWriteLine($"{this.Title}:DisposeAsync:{activeUniqueId}:取消任务异常: {ex.GetType().Name}: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        await ForceCleanupSessionAsync(activeContext, activeUniqueId);
+                    }
+                    finally
+                    {
+                        _activeContexts.TryRemove(activeUniqueId, out _);
+                    }
+                }
+            }
+            finally
+            {
+                await base.DisposeAsync();
+            }
         }
         private TaskConfig BuildTaskConfig(string uniqueId, JObject taskArgs, CancellationTokenSource linkedCts)
         {
@@ -3680,7 +3719,14 @@ namespace SEM.Plugins
 
                 if (ctx != null)
                 {
-                    await ForceCleanupSessionAsync(ctx, uniqueId);
+                    try
+                    {
+                        await ForceCleanupSessionAsync(ctx, uniqueId);
+                    }
+                    finally
+                    {
+                        _activeContexts.TryRemove(uniqueId, out _);
+                    }
                 }
             }
         }
